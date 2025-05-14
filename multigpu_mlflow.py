@@ -41,6 +41,8 @@ class Trainer:
         self.save_every = save_every
         self.model = DDP(model.to(gpu_id), device_ids=[gpu_id])
         self.global_step = 0
+        # Cache batch-size once
+        self.b_sz = len(next(iter(self.train_data))[0])
 
     def _run_batch(self, source, targets):
         self.optimizer.zero_grad()
@@ -54,8 +56,7 @@ class Trainer:
         self.global_step += 1
 
     def _run_epoch(self, epoch):
-        b_sz = len(next(iter(self.train_data))[0]) #removed
-        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}") #removed
+        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batchsize: {self.b_sz} | Steps: {len(self.train_data)}")
         self.train_data.sampler.set_epoch(epoch)
         for source, targets in self.train_data:
             source = source.to(self.gpu_id, non_blocking=True)
@@ -68,7 +69,7 @@ class Trainer:
         print(f"Epoch {epoch} | Training checkpoint saved at {PATH}")
 
         if self.is_master:
-            mlflow.log_artifact(ckpt_path)
+            mlflow.log_artifact(PATH)
             mlflow.pytorch.log_model(
                 self.model.module,
                 artifact_path="model",
@@ -98,10 +99,10 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
         sampler=DistributedSampler(dataset)
     )
 
-def _default_tracking_uri(port: str = "6006") -> str:
-    public_ip = os.getenv("PUBLIC_IPADDR", "127.0.0.1")
-    ext_port  = os.getenv(f"VAST_TCP_PORT_{port}", port)
-    return f"http://{public_ip}:{ext_port}"
+
+def _default_tracking_uri(port="6006"):
+    return f"http://127.0.0.1:{port}"
+
 
 def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_size: int):
     ddp_setup(rank, world_size)
