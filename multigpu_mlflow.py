@@ -100,7 +100,7 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
     )
 
 
-def _default_tracking_uri(port="6006"):
+def _default_tracking_uri(port="8082"):
     return f"http://127.0.0.1:{port}"
 
 
