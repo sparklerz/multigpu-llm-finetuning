@@ -114,6 +114,9 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
 
 def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_size: int):
     ddp_setup(rank, world_size)
+    dataset, model, optimizer = load_train_objs()
+    train_data = prepare_dataloader(dataset, batch_size)
+    trainer = Trainer(model, train_data, optimizer, gpu_id=rank, save_every=save_every, rank=rank)
 
     # Only rank 0 initializes W&B
     if rank == 0:
@@ -130,9 +133,6 @@ def main(rank: int, world_size: int, save_every: int, total_epochs: int, batch_s
         wandb.run.name = f"run-ddp-{wandb.run.id}"
         wandb.watch(trainer.model.module, log="all", log_freq=10)
 
-    dataset, model, optimizer = load_train_objs()
-    train_data = prepare_dataloader(dataset, batch_size)
-    trainer = Trainer(model, train_data, optimizer, gpu_id=rank, save_every=save_every, rank=rank)
     trainer.train(total_epochs)
 
     # Finish W&B on rank 0
