@@ -117,10 +117,11 @@ def main(num_epochs: int,
                         "hf_repo": hf_repo})
 
     ds = load_dataset("ash001/arxiv-abstract", split="train")
+    ds = ds.select(range(start_idx, end_idx))
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-0.5B-Instruct")
     model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2-0.5B-Instruct")
     def tok(ex):
-        t = tokenizer(ex["abstract"], truncation=True, max_length=512, padding="max_length")
+        t = tokenizer(ex["text"], truncation=True, max_length=512, padding="max_length")
         t['labels'] = t['input_ids'].copy()
         return t
     tok_ds = ds.map(tok, remove_columns=ds.column_names)
