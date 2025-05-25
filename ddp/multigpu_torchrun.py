@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -41,12 +42,11 @@ class Trainer:
         self.hf_repo = hf_repo
         self.accum_steps = accum_steps
 
-        # compute steps threshold
+        # compute total optimizer steps for this run
         total_samples = end_idx - start_idx
         world_size = dist.get_world_size()
         bs_per_gpu = self.dataloader.batch_size
-        # steps count refers to optimizer updates
-        self.max_steps = math.ceil((total_samples) / (bs_per_gpu * world_size * accum_steps))
+        self.max_steps = math.ceil(total_samples / (bs_per_gpu * world_size * accum_steps))
 
         # resume state
         self.epochs_run = 0
@@ -62,9 +62,13 @@ class Trainer:
                 self.model.load_state_dict(state)
                 self.epochs_run = ckpt.get("EPOCHS_RUN", 0)
                 self.global_step = ckpt.get("GLOBAL_STEP", 0)
-                print(f"[Rank {self.local_rank}] Resumed at step {self.global_step}, epoch {self.epochs_run}")
+                print(f"[Rank {self.local_rank}] Resumed at epoch {self.epochs_run}, step {self.global_step}")
 
-        # wrap model
+        # initialize processed samples counter per GPU
+        self.processed_samples = self.global_step * bs_per_gpu * accum_steps // accum_steps
+        print(f"[Rank {self.local_rank}] Starting training, already processed {self.processed_samples} samples")
+
+        # wrap model for DDP
         self.model = DDP(self.model, device_ids=[self.local_rank])
 
     def _save_checkpoint(self, epoch):
@@ -77,7 +81,7 @@ class Trainer:
             "EPOCHS_RUN": disp_epoch,
             "GLOBAL_STEP": self.global_step
         }, name)
-        print(f"[Rank {self.local_rank}] Saved {name}")
+        print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
         if self.hf_repo:
             HfApi().upload_file(
                 path_or_fileobj=name,
@@ -86,7 +90,7 @@ class Trainer:
                 repo_type="model",
                 token=os.getenv("HUGGINGFACE_TOKEN")
             )
-            print(f"[Rank {self.local_rank}] Uploaded {name} to {self.hf_repo}")
+            print(f"[Rank {self.local_rank}] Uploaded {name} to HF repo {self.hf_repo}")
 
     def train(self, num_epochs):
         self.model.train()
@@ -94,11 +98,14 @@ class Trainer:
             self.dataloader.sampler.set_epoch(epoch)
             accum_counter = 0
             for batch in self.dataloader:
-                inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
+                # count samples per GPU dynamically
                 labels = batch['labels'].to(self.device)
+                self.processed_samples += labels.size(0)
+                print(f"[Rank {self.local_rank}] Processed {self.processed_samples} samples so far")
 
-                outputs = self.model(**inputs, labels=labels)
-                loss = outputs.loss / self.accum_steps
+                inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
+                loss = self.model(**inputs, labels=labels).loss
+                loss = loss / self.accum_steps
                 loss.backward()
                 accum_counter += 1
 
@@ -106,19 +113,19 @@ class Trainer:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     self.global_step += 1
-                    print(f"[Rank {self.local_rank}] Completed optimizer step {self.global_step}, processed {self.accum_steps * len(labels)} samples this step")
+                    print(f"[Rank {self.local_rank}] Completed optimizer step {self.global_step}")
                     accum_counter = 0
 
                 if self.global_step >= self.max_steps:
                     self._save_checkpoint(epoch)
                     return
 
-            # finish any remaining grads
+            # finish any remaining gradients
             if accum_counter > 0:
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 self.global_step += 1
-                print(f"[Rank {self.local_rank}] Final optimizer step {self.global_step} of epoch, processed remaining samples")
+                print(f"[Rank {self.local_rank}] Final optimizer step {self.global_step} of epoch")
             self._save_checkpoint(epoch)
 
 
@@ -142,8 +149,11 @@ def main(num_epochs: int,
         "hf_repo": hf_repo
     })
 
+    # load and slice dataset with progress bar
     ds = load_dataset("ash001/arxiv-abstract", split="train")
+    print(f"[Rank {local_rank}] Loaded full train split with {len(ds)} samples")
     ds = ds.select(range(start_idx, end_idx))
+    print(f"[Rank {local_rank}] Selected slice [{start_idx}:{end_idx}) with {len(ds)} samples")
 
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-0.5B-Instruct")
     model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2-0.5B-Instruct")
@@ -175,18 +185,18 @@ def main(num_epochs: int,
     dist.destroy_process_group()
 
 if __name__ == "__main__":
-    import argparse, math
-    p = argparse.ArgumentParser(description="DDP fine-tune Qwen2-0.5B with gradient accumulation")
+    import argparse
+    p = argparse.ArgumentParser(description="DDP fine-tune Qwen2-0.5B with dynamic sample logging")
     p.add_argument("num_epochs", type=int)
-    p.add_argument("start_idx", type=int, help="Sample start index")
-    p.add_argument("end_idx", type=int, help="Sample end index")
+    p.add_argument("start_idx", type=int, help="Sample start index for this run")
+    p.add_argument("end_idx", type=int, help="Sample end index for this run")
     p.add_argument("--batch_size", type=int, default=2)
     p.add_argument("--accum_steps", type=int, default=1,
                    help="Gradient accumulation steps to simulate larger batch sizes")
     p.add_argument("--hf_repo", type=str, required=True,
                    help="HF repo ID, e.g. ash001/pytorch-DDP-Qwen2-0.5B")
     p.add_argument("--resume_file", type=str,
-                   help="Checkpoint filename in repo, e.g. qwen2_0.5B_0-400000-epoch-1.pt")
+                   help="Checkpoint filename in repo, e.g. qwen2_0.5B_0-100000-epoch-1.pt")
     args = p.parse_args()
     main(args.num_epochs, args.start_idx, args.end_idx,
          args.batch_size, args.hf_repo,
