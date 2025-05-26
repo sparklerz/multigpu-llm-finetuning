@@ -87,8 +87,7 @@ class Trainer:
                 path_or_fileobj=name,
                 path_in_repo=name,
                 repo_id=self.hf_repo,
-                repo_type="model",
-                token=os.getenv("HUGGINGFACE_TOKEN")
+                repo_type="model"
             )
             print(f"[Rank {self.local_rank}] Uploaded {name} to HF repo {self.hf_repo}")
 
@@ -105,6 +104,11 @@ class Trainer:
 
                 inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
                 loss = self.model(**inputs, labels=labels).loss
+                # log per-step loss to MLflow (on rank 0)
+                if self.local_rank == 0:
+                    # multiply by accum_steps to get true loss per optimizer step
+                    mlflow.log_metric("train_loss", loss.item() * self.accum_steps, step=self.global_step)
+                    print(f"[Rank {self.local_rank}] Logged train_loss={loss.item() * self.accum_steps} at step {self.global_step}")
                 loss = loss / self.accum_steps
                 loss.backward()
                 accum_counter += 1
@@ -139,6 +143,7 @@ def main(num_epochs: int,
     local_rank, world_size = ddp_setup()
 
     mlflow.set_experiment("qwen2-0.5B-arxiv-finetune")
+    print(f"[Rank {local_rank}] MLflow experiment 'qwen2-0.5B-arxiv-finetune' is created")
     mlflow.start_run(run_name=f"{world_size}gpu_{start_idx}-{end_idx}")
     mlflow.log_params({
         "num_epochs": num_epochs,
@@ -181,6 +186,9 @@ def main(num_epochs: int,
 
     if local_rank == 0 and hf_repo:
         tokenizer.push_to_hub(hf_repo)
+    # end MLflow run
+    print(f"[Rank {local_rank}] MLflow run completed for slice {start_idx}-{end_idx}")
+    mlflow.end_run()
 
     dist.destroy_process_group()
 
