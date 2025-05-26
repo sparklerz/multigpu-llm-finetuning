@@ -140,6 +140,8 @@ def main(num_epochs: int,
          hf_repo: str,
          resume_file: str = None,
          accum_steps: int = 1):
+    # record overall run start time
+    run_start_time = time.time()
     local_rank, world_size = ddp_setup()
 
     mlflow.set_experiment("qwen2-0.5B-arxiv-finetune")
@@ -186,6 +188,11 @@ def main(num_epochs: int,
 
     if local_rank == 0 and hf_repo:
         tokenizer.push_to_hub(hf_repo)
+    # compute and log total run time
+    run_time = time.time() - run_start_time
+    if local_rank == 0:
+        mlflow.log_metric("total_run_time_sec", run_time)
+        print(f"[Rank {local_rank}] Total MLflow run time: {run_time:.2f}s")
     # end MLflow run
     print(f"[Rank {local_rank}] MLflow run completed for slice {start_idx}-{end_idx}")
     mlflow.end_run()
