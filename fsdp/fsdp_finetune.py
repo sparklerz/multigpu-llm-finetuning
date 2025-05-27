@@ -24,12 +24,6 @@ def ddp_setup():
     return local_rank, world_size
 
 
-def auto_wrap_policy(module):
-    # Wrap transformer decoder layers
-    from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-    return isinstance(module, LlamaDecoderLayer)
-
-
 class Trainer:
     def __init__(
         self,
@@ -56,11 +50,17 @@ class Trainer:
         # Load and prepare dataset slice
         ds = load_dataset(DATASET_NAME, split="train")
         ds = ds.select(range(start_idx, end_idx))
+
+        # Tokenizer setup (ensure pad_token exists)
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
         def tokenize_fn(example):
             tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length")
             tok['labels'] = tok['input_ids'].copy()
             return tok
+
         tok_ds = ds.map(tokenize_fn, remove_columns=ds.column_names)
         tok_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
         collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -73,7 +73,6 @@ class Trainer:
         model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
-            auto_wrap_policy=auto_wrap_policy,
             cpu_offload=CPUOffload(offload_params=False),
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
@@ -157,20 +156,12 @@ class Trainer:
                 labels = batch['labels'].to(self.device)
                 inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
                 loss = self.model(**inputs, labels=labels).loss
-
-                # Batch-level logging
                 if self.local_rank == 0:
-                    wandb.log({
-                        "train_loss": loss.item() * self.accum_steps,
-                        "step": self.global_step
-                    })
-
-                # Accumulate for epoch average
+                    wandb.log({"train_loss": loss.item() * self.accum_steps, "step": self.global_step})
                 epoch_loss += loss.item() * self.accum_steps
                 loss = loss / self.accum_steps
                 loss.backward()
                 accum_counter += 1
-
                 if accum_counter == self.accum_steps:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
