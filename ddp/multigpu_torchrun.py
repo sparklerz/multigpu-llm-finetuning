@@ -64,8 +64,7 @@ class Trainer:
                 self.global_step = ckpt.get("GLOBAL_STEP", 0)
                 print(f"[Rank {self.local_rank}] Resumed at epoch {self.epochs_run}, step {self.global_step}")
 
-        # initialize processed samples counter per GPU
-        self.processed_samples = self.global_step * bs_per_gpu * accum_steps // accum_steps
+        self.processed_samples = self.global_step * bs_per_gpu * accum_steps
         print(f"[Rank {self.local_rank}] Starting training, already processed {self.processed_samples} samples")
 
         # wrap model for DDP
@@ -78,7 +77,7 @@ class Trainer:
         name = f"qwen2_0.5B_{self.start_idx}-{self.end_idx}-epoch-{disp_epoch}.pt"
         torch.save({
             "MODEL_STATE": self.model.module.state_dict(),
-            "EPOCHS_RUN": disp_epoch,
+            "EPOCHS_RUN": epoch,
             "GLOBAL_STEP": self.global_step
         }, name)
         print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
@@ -93,7 +92,7 @@ class Trainer:
 
     def train(self, num_epochs):
         self.model.train()
-        for epoch in range(self.epochs_run, num_epochs):
+        for epoch in range(self.epochs_run, self.epochs_run + num_epochs):
             self.dataloader.sampler.set_epoch(epoch)
             accum_counter = 0
             for batch in self.dataloader:
