@@ -2,7 +2,6 @@ import os
 import time
 import math
 import torch
-import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -11,7 +10,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload, ShardingStrategy
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
 from torch.distributed.fsdp.wrap import default_auto_wrap_policy
 
 MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
@@ -55,7 +54,7 @@ class Trainer:
         self.global_step = 0
         self.epochs_run = initial_epoch
 
-        # setup dataset
+        # Load and prepare dataset slice
         ds = load_dataset(DATASET_NAME, split="train")
         ds = ds.select(range(start_idx, end_idx))
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -70,12 +69,9 @@ class Trainer:
         self.loader = DataLoader(tok_ds, batch_size=batch_size, sampler=sampler,
                                  collate_fn=collator, pin_memory=True)
 
-        # load model in fp16
-        torch.cuda.set_device(self.device)
+        # Initialize model with FSDP
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
         model.gradient_checkpointing_enable()
-
-        # apply FSDP
         fsdp_model = FSDP(
             model,
             auto_wrap_policy=auto_wrap_policy,
@@ -87,29 +83,26 @@ class Trainer:
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model
+        self.model = fsdp_model.to(self.device)
 
-        # optimizer
+        # Optimizer
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
 
-        # compute max steps
+        # Compute total steps
         total_samples = end_idx - start_idx
-        bs_per_gpu = batch_size
-        self.max_steps = math.ceil(total_samples / (bs_per_gpu * self.world_size * accum_steps))
+        self.max_steps = math.ceil(total_samples / (batch_size * self.world_size * accum_steps))
 
-        # resume if needed
+        # Resume checkpoint if specified
         if hf_repo and resume_file and self.local_rank == 0:
-            try:
-                from huggingface_hub import hf_hub_download
-                ckpt = torch.load(hf_hub_download(repo_id=hf_repo, filename=resume_file), map_location=self.device)
-            except:
-                ckpt = torch.load(resume_file, map_location=self.device)
+            from huggingface_hub import hf_hub_download
+            ckpt_path = hf_hub_download(repo_id=hf_repo, filename=resume_file)
+            ckpt = torch.load(ckpt_path, map_location=self.device)
             self.model.load_state_dict(ckpt['MODEL_STATE'])
             self.global_step = ckpt.get('GLOBAL_STEP', 0)
             print(f"[Rank {self.local_rank}] Resumed from {resume_file} at step {self.global_step}")
         dist.barrier()
 
-        # W&B init on rank0
+        # Initialize W&B on rank 0
         if self.local_rank == 0:
             wandb.init(
                 project="llama-fsdp-arxiv",
@@ -123,6 +116,10 @@ class Trainer:
                     "hf_repo": hf_repo
                 }
             )
+            wandb.run.name = f"fsdp-llama3.2-{wandb.run.id}"
+            # Watch model parameters and gradients
+            wandb.watch(self.model.module if hasattr(self.model, 'module') else self.model,
+                        log="all", log_freq=10)
 
     def _save_checkpoint(self):
         if self.local_rank != 0:
@@ -135,23 +132,42 @@ class Trainer:
             "EPOCHS_RUN": self.epochs_run
         }
         torch.save(state, name)
-        print(f"[Rank {self.local_rank}] Saved {name}")
+        print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
         if self.hf_repo:
             from huggingface_hub import HfApi
-            HfApi().upload_file(path_or_fileobj=name, path_in_repo=name, repo_id=self.hf_repo, repo_type="model")
+            HfApi().upload_file(path_or_fileobj=name,
+                                path_in_repo=name,
+                                repo_id=self.hf_repo,
+                                repo_type="model")
+        # Log as W&B artifact
+        artifact = wandb.Artifact(
+            name=f"model-epoch-{epoch}",
+            type="model",
+            description=f"Checkpoint at epoch {epoch}"
+        )
+        artifact.add_file(name)
+        wandb.log_artifact(artifact)
 
     def train(self):
         self.model.train()
         for epoch in range(self.epochs_run, self.epochs_run + self.num_epochs):
             self.loader.sampler.set_epoch(epoch)
+            epoch_loss = 0.0
             accum_counter = 0
             for batch in self.loader:
                 labels = batch['labels'].to(self.device)
                 inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
                 loss = self.model(**inputs, labels=labels).loss
-                # log
+
+                # Batch-level logging
                 if self.local_rank == 0:
-                    wandb.log({"train_loss": (loss.item() * self.accum_steps), "step": self.global_step})
+                    wandb.log({
+                        "train_loss": loss.item() * self.accum_steps,
+                        "step": self.global_step
+                    })
+
+                # Accumulate for epoch average
+                epoch_loss += loss.item() * self.accum_steps
                 loss = loss / self.accum_steps
                 loss.backward()
                 accum_counter += 1
@@ -166,11 +182,17 @@ class Trainer:
                 if self.global_step >= self.max_steps:
                     break
 
-            # final step if leftovers
+            # Final optimizer step if needed
             if accum_counter > 0:
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 self.global_step += 1
+
+            # Epoch-level logging
+            avg_loss = epoch_loss / (self.max_steps if self.max_steps else 1)
+            if self.local_rank == 0:
+                wandb.log({"epoch": epoch + 1, "avg_loss": avg_loss})
+
             self.epochs_run += 1
             self._save_checkpoint()
             dist.barrier()
@@ -200,6 +222,11 @@ def main():
         resume_file=args.resume_file
     )
     trainer.train()
+
+    # Finish W&B run
+    if trainer.local_rank == 0:
+        wandb.finish()
+
     dist.destroy_process_group()
 
 if __name__ == "__main__":
