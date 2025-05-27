@@ -70,7 +70,6 @@ class Trainer:
 
         # Initialize model with FSDP
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
-        model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
             cpu_offload=CPUOffload(offload_params=False),
