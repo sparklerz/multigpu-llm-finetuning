@@ -61,8 +61,7 @@ class Trainer:
                 ckpt = torch.load(path, map_location=self.device)
                 state = ckpt.get("MODEL_STATE", ckpt)
                 self.model.load_state_dict(state)
-                self.global_step = ckpt.get("GLOBAL_STEP", 0)
-                print(f"[Rank {self.local_rank}] Resumed at epoch {self.epochs_run}, step {self.global_step}")
+                print(f"[Rank {self.local_rank}] Loaded weights from checkpoint {resume_file}")
 
         self.processed_samples = self.global_step * bs_per_gpu * accum_steps
         print(f"[Rank {self.local_rank}] Starting training, already processed {self.processed_samples} samples")
