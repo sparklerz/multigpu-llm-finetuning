@@ -202,20 +202,31 @@ def main(num_epochs: int,
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser(description="DDP fine-tune Qwen2-0.5B with dynamic sample logging")
-    p.add_argument("num_epochs", type=int)
-    p.add_argument("start_idx", type=int, help="Sample start index for this run")
-    p.add_argument("end_idx", type=int, help="Sample end index for this run")
-    p.add_argument("--batch_size", type=int, default=2)
+    p.add_argument("--num_epochs", type=int, required=True,
+                   help="Number of epochs to run per slice")
+    p.add_argument("--start_idx", type=int, required=True,
+                   help="Sample start index for this run")
+    p.add_argument("--end_idx", type=int, required=True,
+                   help="Sample end index for this run")
+    p.add_argument("--batch_size", type=int, default=2,
+                   help="Micro-batch size per GPU")
     p.add_argument("--accum_steps", type=int, default=1,
-                   help="Gradient accumulation steps to simulate larger batch sizes")
+                   help="Gradient accumulation steps")
     p.add_argument("--initial_epoch", type=int, default=0,
-                   help="Epoch number to resume")
+                   help="Epoch number to resume (overrides checkpoint)")
     p.add_argument("--hf_repo", type=str, required=True,
                    help="HF repo ID, e.g. ash001/pytorch-DDP-Qwen2-0.5B")
     p.add_argument("--resume_file", type=str,
                    help="Checkpoint filename in repo, e.g. qwen2_0.5B_0-100000-epoch-1.pt")
     args = p.parse_args()
-    main(args.num_epochs, args.start_idx, args.end_idx,
-         args.batch_size, args.hf_repo,
-         args.resume_file, args.accum_steps,
-         args.initial_epoch)
+
+    main(
+        num_epochs=args.num_epochs,
+        start_idx=args.start_idx,
+        end_idx=args.end_idx,
+        batch_size=args.batch_size,
+        hf_repo=args.hf_repo,
+        resume_file=args.resume_file,
+        accum_steps=args.accum_steps,
+        initial_epoch=args.initial_epoch
+    )
