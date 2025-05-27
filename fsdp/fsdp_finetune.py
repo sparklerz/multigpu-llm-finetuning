@@ -11,7 +11,6 @@ import wandb
 
 # FSDP imports
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
-from torch.distributed.fsdp.wrap import default_auto_wrap_policy
 
 MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
 DATASET_NAME = "ash001/arxiv-abstract"
