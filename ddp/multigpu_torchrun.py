@@ -30,7 +30,8 @@ class Trainer:
         end_idx,
         hf_repo,
         resume_file,
-        accum_steps
+        accum_steps,
+        initial_epoch
     ):
         self.local_rank = int(os.environ.get("LOCAL_RANK", 0))
         self.device = torch.device(f"cuda:{self.local_rank}")
@@ -48,8 +49,8 @@ class Trainer:
         bs_per_gpu = self.dataloader.batch_size
         self.max_steps = math.ceil(total_samples / (bs_per_gpu * world_size * accum_steps))
 
-        # resume state
-        self.epochs_run = 0
+        # resume global_step but keep epochs_run fixed
+        self.epochs_run = initial_epoch
         self.global_step = 0
         if hf_repo and resume_file:
             try:
@@ -60,7 +61,6 @@ class Trainer:
                 ckpt = torch.load(path, map_location=self.device)
                 state = ckpt.get("MODEL_STATE", ckpt)
                 self.model.load_state_dict(state)
-                self.epochs_run = ckpt.get("EPOCHS_RUN", 0)
                 self.global_step = ckpt.get("GLOBAL_STEP", 0)
                 print(f"[Rank {self.local_rank}] Resumed at epoch {self.epochs_run}, step {self.global_step}")
 
@@ -70,14 +70,14 @@ class Trainer:
         # wrap model for DDP
         self.model = DDP(self.model, device_ids=[self.local_rank])
 
-    def _save_checkpoint(self, epoch):
+    def _save_checkpoint(self):
         if self.local_rank != 0:
             return
-        disp_epoch = epoch + 1
+        disp_epoch = self.epochs_run + 1
         name = f"qwen2_0.5B_{self.start_idx}-{self.end_idx}-epoch-{disp_epoch}.pt"
         torch.save({
             "MODEL_STATE": self.model.module.state_dict(),
-            "EPOCHS_RUN": epoch,
+            "EPOCHS_RUN": self.epochs_run,
             "GLOBAL_STEP": self.global_step
         }, name)
         print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
@@ -120,7 +120,7 @@ class Trainer:
                     accum_counter = 0
 
                 if self.global_step >= self.max_steps:
-                    self._save_checkpoint(epoch)
+                    self._save_checkpoint()
                     return
 
             # finish any remaining gradients
@@ -129,7 +129,7 @@ class Trainer:
                 self.optimizer.zero_grad()
                 self.global_step += 1
                 print(f"[Rank {self.local_rank}] Final optimizer step {self.global_step} of epoch")
-            self._save_checkpoint(epoch)
+            self._save_checkpoint()
 
 
 def main(num_epochs: int,
@@ -138,7 +138,8 @@ def main(num_epochs: int,
          batch_size: int,
          hf_repo: str,
          resume_file: str = None,
-         accum_steps: int = 1):
+         accum_steps: int = 1,
+         initial_epoch: int = 0):
     # record overall run start time
     run_start_time = time.time()
     local_rank, world_size = ddp_setup()
@@ -152,6 +153,7 @@ def main(num_epochs: int,
         "end_idx": end_idx,
         "batch_size": batch_size,
         "accumulation_steps": accum_steps,
+        "initial_epoch": initial_epoch,
         "hf_repo": hf_repo
     })
 
@@ -182,7 +184,7 @@ def main(num_epochs: int,
     trainer = Trainer(model, loader, optimizer,
                       start_idx, end_idx,
                       hf_repo, resume_file,
-                      accum_steps)
+                      accum_steps, initial_epoch)
     trainer.train(num_epochs)
 
     if local_rank == 0 and hf_repo:
@@ -207,6 +209,8 @@ if __name__ == "__main__":
     p.add_argument("--batch_size", type=int, default=2)
     p.add_argument("--accum_steps", type=int, default=1,
                    help="Gradient accumulation steps to simulate larger batch sizes")
+    p.add_argument("--initial_epoch", type=int, default=0,
+                   help="Epoch number to resume")
     p.add_argument("--hf_repo", type=str, required=True,
                    help="HF repo ID, e.g. ash001/pytorch-DDP-Qwen2-0.5B")
     p.add_argument("--resume_file", type=str,
@@ -214,4 +218,5 @@ if __name__ == "__main__":
     args = p.parse_args()
     main(args.num_epochs, args.start_idx, args.end_idx,
          args.batch_size, args.hf_repo,
-         args.resume_file, args.accum_steps)
+         args.resume_file, args.accum_steps,
+         args.initial_epoch)
