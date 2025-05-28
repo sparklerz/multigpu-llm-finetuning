@@ -8,7 +8,6 @@ from torch.utils.data.distributed import DistributedSampler
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
 import wandb
-from torch.cuda.amp import autocast, GradScaler
 
 # FSDP imports
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
@@ -83,9 +82,8 @@ class Trainer:
         )
         self.model = fsdp_model.to(self.device)
 
-        # Optimizer and AMP scaler
+        # Optimizer
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
-        self.scaler = GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -156,21 +154,19 @@ class Trainer:
             for batch in self.loader:
                 labels = batch['labels'].to(self.device)
                 inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
-                # mixed-precision forward
-                with autocast():
-                    loss = self.model(**inputs, labels=labels).loss
-                    loss = loss / self.accum_steps
-                # log raw loss for debugging
+                # forward pass
+                loss = self.model(**inputs, labels=labels).loss
+                loss = loss / self.accum_steps
+                # log loss
                 if self.local_rank == 0:
-                    wandb.log({"train_loss": float(loss.item()), "step": self.global_step})
+                    wandb.log({"train_loss": loss.item(), "step": self.global_step})
                 epoch_loss += loss.item() * self.accum_steps
-                # backward with scaler
-                self.scaler.scale(loss).backward()
+                # backward
+                loss.backward()
                 accum_counter += 1
 
                 if accum_counter == self.accum_steps:
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
+                    self.optimizer.step()
                     self.optimizer.zero_grad()
                     self.global_step += 1
                     accum_counter = 0
@@ -179,10 +175,9 @@ class Trainer:
                 if self.global_step >= self.max_steps:
                     break
 
-            # final backward flush if needed
+            # final step if needed
             if accum_counter > 0:
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                self.optimizer.step()
                 self.optimizer.zero_grad()
                 self.global_step += 1
 
