@@ -81,7 +81,7 @@ class Trainer:
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model.to(self.device)
+        self.model = fsdp_model
 
         # Optimizer
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
