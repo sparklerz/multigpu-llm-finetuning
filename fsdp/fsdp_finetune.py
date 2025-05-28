@@ -70,14 +70,14 @@ class Trainer:
                                  collate_fn=collator, pin_memory=True)
 
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float32)
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=False),
+            cpu_offload=CPUOffload(offload_params=True),
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float32,
+                param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
-                buffer_dtype=torch.float32
+                buffer_dtype=torch.float16
             ),
             device_id=self.local_rank
         )
