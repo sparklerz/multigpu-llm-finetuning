@@ -8,6 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
 import wandb
+from torch.nn.utils import clip_grad_norm_
 
 # FSDP imports
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
@@ -69,14 +70,14 @@ class Trainer:
                                  collate_fn=collator, pin_memory=True)
 
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float32)
         fsdp_model = FSDP(
             model,
             cpu_offload=CPUOffload(offload_params=False),
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float16,
+                param_dtype=torch.float32,
                 reduce_dtype=torch.float16,
-                buffer_dtype=torch.float16
+                buffer_dtype=torch.float32
             ),
             device_id=self.local_rank
         )
@@ -147,44 +148,36 @@ class Trainer:
 
     def train(self):
         self.model.train()
-        for epoch in range(self.epochs_run, self.epochs_run + self.num_epochs):
-            self.loader.sampler.set_epoch(epoch)
-            epoch_loss = 0.0
-            accum_counter = 0
+        for ep in range(self.epochs_run, self.epochs_run + self.num_epochs):
+            self.loader.sampler.set_epoch(ep)
+            total_loss = 0.0
+            accum = 0
             for batch in self.loader:
-                labels = batch['labels'].to(self.device)
                 inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
-                # forward pass
-                loss = self.model(**inputs, labels=labels).loss
-                loss = loss / self.accum_steps
-                # log loss
-                if self.local_rank == 0:
-                    wandb.log({"train_loss": loss.item(), "step": self.global_step})
-                epoch_loss += loss.item() * self.accum_steps
-                # backward
+                labels = batch['labels'].to(self.device)
+                loss = self.model(**inputs, labels=labels).loss / self.accum_steps
+                total_loss += loss.item() * self.accum_steps
                 loss.backward()
-                accum_counter += 1
-
-                if accum_counter == self.accum_steps:
+                accum += 1
+                if accum == self.accum_steps:
+                    # Clip grads to avoid exploding
+                    clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     self.global_step += 1
-                    accum_counter = 0
+                    accum = 0
                     if self.local_rank == 0:
-                        print(f"Completed step {self.global_step}/{self.max_steps}")
+                        wandb.log({'train_loss': loss.item(), 'step': self.global_step})
                 if self.global_step >= self.max_steps:
                     break
-
-            # final step if needed
-            if accum_counter > 0:
+            if accum > 0:
+                clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 self.global_step += 1
-
-            avg_loss = epoch_loss / (self.max_steps if self.max_steps else 1)
+            avg_loss = total_loss / (self.max_steps or 1)
             if self.local_rank == 0:
-                wandb.log({"epoch": epoch + 1, "avg_loss": avg_loss})
-
+                wandb.log({'epoch': ep+1, 'avg_loss': avg_loss})
             self.epochs_run += 1
             self._save_checkpoint()
             dist.barrier()
