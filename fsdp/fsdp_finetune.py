@@ -81,11 +81,9 @@ class Trainer:
         # Initialize model with FSDP
         # Load in full precision and let FSDP handle mixed precision & offloading
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
-        # Enable gradient checkpointing to save memory
-        model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=True),  # Offload parameters to CPU to reduce GPU memory
+            cpu_offload=CPUOffload(offload_params=False),
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
@@ -93,7 +91,7 @@ class Trainer:
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model
+        self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)  # Reduced LR
