@@ -59,7 +59,7 @@ class Trainer:
         tokenizer.padding_side = "right"
 
         def tokenize_fn(example):
-            tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length", return_attention_mask=True)
+            tok = tokenizer(example["text"], truncation=True, max_length=256, padding="max_length", return_attention_mask=True)
             # Replace pad token labels with -100 to ignore in loss
             labels = tok["input_ids"].copy()
             labels = [lbl if lbl != tokenizer.pad_token_id else -100 for lbl in labels]
@@ -70,15 +70,22 @@ class Trainer:
         tok_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
         collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
         sampler = DistributedSampler(tok_ds, shuffle=True)
-        self.loader = DataLoader(tok_ds, batch_size=batch_size, sampler=sampler,
-                                 collate_fn=collator, pin_memory=True)
+        self.loader = DataLoader(
+            tok_ds,
+            batch_size=batch_size,
+            sampler=sampler,
+            collate_fn=collator,
+            pin_memory=True
+        )
 
         # Initialize model with FSDP
-        # Load in full precision and let FSDP handle mixed precision
+        # Load in full precision and let FSDP handle mixed precision & offloading
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+        # Enable gradient checkpointing to save memory
+        model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=False),  # Keep on GPU to reduce CPU-GPU transfer
+            cpu_offload=CPUOffload(offload_params=True),  # Offload parameters to CPU to reduce GPU memory
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
@@ -89,8 +96,8 @@ class Trainer:
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-5)
-        self.scaler = torch.cuda.amp.GradScaler()
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)  # Reduced LR
+        self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -140,10 +147,12 @@ class Trainer:
         print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
         if self.hf_repo:
             from huggingface_hub import HfApi
-            HfApi().upload_file(path_or_fileobj=name,
-                                path_in_repo=name,
-                                repo_id=self.hf_repo,
-                                repo_type="model")
+            HfApi().upload_file(
+                path_or_fileobj=name,
+                path_in_repo=name,
+                repo_id=self.hf_repo,
+                repo_type="model"
+            )
         # Log as W&B artifact
         artifact = wandb.Artifact(
             name=f"model-epoch-{epoch}",
@@ -165,7 +174,7 @@ class Trainer:
                 attention_mask = batch['attention_mask'].to(self.device)
                 labels = batch['labels'].to(self.device)
 
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast():
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     loss = outputs.loss / self.accum_steps
                 total_loss += loss.item() * self.accum_steps
@@ -182,7 +191,9 @@ class Trainer:
                     self.optimizer.zero_grad()
                     self.global_step += 1
                     accum = 0
+                    # Dynamic logging per step
                     if self.local_rank == 0:
+                        print(f"Step {self.global_step} | Loss: {loss.item():.4f}")
                         wandb.log({'train_loss': loss.item(), 'step': self.global_step})
                 if self.global_step >= self.max_steps:
                     break
@@ -198,6 +209,7 @@ class Trainer:
 
             avg_loss = total_loss / (self.max_steps or 1)
             if self.local_rank == 0:
+                print(f"Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
                 wandb.log({'epoch': ep+1, 'avg_loss': avg_loss})
             self.epochs_run += 1
             self._save_checkpoint()
@@ -210,8 +222,8 @@ def main():
     parser.add_argument("--num_epochs", type=int, required=True)
     parser.add_argument("--start_idx", type=int, required=True)
     parser.add_argument("--end_idx", type=int, required=True)
-    parser.add_argument("--batch_size", type=int, default=2)
-    parser.add_argument("--accum_steps", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--accum_steps", type=int, default=16)
     parser.add_argument("--initial_epoch", type=int, default=0)
     parser.add_argument("--hf_repo", type=str, required=True)
     parser.add_argument("--resume_file", type=str, default=None)
