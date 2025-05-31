@@ -174,7 +174,7 @@ class Trainer:
                 attention_mask = batch['attention_mask'].to(self.device)
                 labels = batch['labels'].to(self.device)
 
-                with torch.amp.autocast():
+                with torch.amp.autocast(device_type='cuda'):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     loss = outputs.loss / self.accum_steps
                 total_loss += loss.item() * self.accum_steps
