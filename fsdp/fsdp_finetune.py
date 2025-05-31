@@ -18,9 +18,9 @@ DATASET_NAME = "ash001/arxiv-abstract"
 
 
 def ddp_setup():
-    dist.init_process_group(backend="nccl")
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     torch.cuda.set_device(local_rank)
+    dist.init_process_group(backend="nccl")
     world_size = dist.get_world_size()
     return local_rank, world_size
 
@@ -93,7 +93,7 @@ class Trainer:
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model.to(self.device)
+        self.model = fsdp_model
 
         # Optimizer and GradScaler for AMP
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)  # Reduced LR
@@ -192,8 +192,8 @@ class Trainer:
                     self.global_step += 1
                     accum = 0
                     # Dynamic logging per step
+                    print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {loss.item():.4f}")
                     if self.local_rank == 0:
-                        print(f"Step {self.global_step} | Loss: {loss.item():.4f}")
                         wandb.log({'train_loss': loss.item(), 'step': self.global_step})
                 if self.global_step >= self.max_steps:
                     break
@@ -208,8 +208,8 @@ class Trainer:
                 self.global_step += 1
 
             avg_loss = total_loss / (self.max_steps or 1)
+            print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
             if self.local_rank == 0:
-                print(f"Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
                 wandb.log({'epoch': ep+1, 'avg_loss': avg_loss})
             self.epochs_run += 1
             self._save_checkpoint()
