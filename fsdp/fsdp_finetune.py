@@ -56,10 +56,14 @@ class Trainer:
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "right"
 
         def tokenize_fn(example):
-            tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length")
-            tok['labels'] = tok['input_ids'].copy()
+            tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length", return_attention_mask=True)
+            # Replace pad token labels with -100 to ignore in loss
+            labels = tok["input_ids"].copy()
+            labels = [lbl if lbl != tokenizer.pad_token_id else -100 for lbl in labels]
+            tok["labels"] = labels
             return tok
 
         tok_ds = ds.map(tokenize_fn, remove_columns=ds.column_names)
@@ -70,10 +74,11 @@ class Trainer:
                                  collate_fn=collator, pin_memory=True)
 
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
+        # Load in full precision and let FSDP handle mixed precision
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=True),
+            cpu_offload=CPUOffload(offload_params=False),  # Keep on GPU to reduce CPU-GPU transfer
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
@@ -81,10 +86,11 @@ class Trainer:
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model
+        self.model = fsdp_model.to(self.device)
 
-        # Optimizer
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5)
+        # Optimizer and GradScaler for AMP
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-5)
+        self.scaler = torch.cuda.amp.GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -124,6 +130,7 @@ class Trainer:
             return
         epoch = self.epochs_run + 1
         name = f"llama3.2_1B_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
+        # Save full state dict on rank 0 (gather parameters)
         state = {
             "MODEL_STATE": self.model.state_dict(),
             "GLOBAL_STEP": self.global_step,
@@ -153,16 +160,25 @@ class Trainer:
             total_loss = 0.0
             accum = 0
             for batch in self.loader:
-                inputs = {k: v.to(self.device) for k, v in batch.items() if k != 'labels'}
+                # Move inputs to device
+                input_ids = batch['input_ids'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
                 labels = batch['labels'].to(self.device)
-                loss = self.model(**inputs, labels=labels).loss / self.accum_steps
+
+                with torch.cuda.amp.autocast():
+                    outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                    loss = outputs.loss / self.accum_steps
                 total_loss += loss.item() * self.accum_steps
-                loss.backward()
+
+                # Backward pass with scaling
+                self.scaler.scale(loss).backward()
                 accum += 1
                 if accum == self.accum_steps:
-                    # Clip grads to avoid exploding
+                    # Unscale, clip grads, optimizer step
+                    self.scaler.unscale_(self.optimizer)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                    self.optimizer.step()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                     self.optimizer.zero_grad()
                     self.global_step += 1
                     accum = 0
@@ -170,11 +186,16 @@ class Trainer:
                         wandb.log({'train_loss': loss.item(), 'step': self.global_step})
                 if self.global_step >= self.max_steps:
                     break
+
+            # Handle leftover accumulation
             if accum > 0:
+                self.scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
                 self.optimizer.zero_grad()
                 self.global_step += 1
+
             avg_loss = total_loss / (self.max_steps or 1)
             if self.local_rank == 0:
                 wandb.log({'epoch': ep+1, 'avg_loss': avg_loss})
