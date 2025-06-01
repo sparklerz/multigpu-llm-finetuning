@@ -172,6 +172,8 @@ class Trainer:
             self.loader.sampler.set_epoch(ep)
             total_loss = 0.0
             accum = 0
+            step_loss = 0.0
+
             for microbatch_idx, batch in enumerate(self.loader):
                 # Send data to the local GPU
                 input_ids = batch["input_ids"].to(self.device, non_blocking=True)
@@ -192,10 +194,12 @@ class Trainer:
                     )
 
                 total_loss += raw_loss.item()
+                step_loss += raw_loss.item()
 
                 # Backward pass with scaling
                 self.scaler.scale(scaled_loss).backward()
                 accum += 1
+
                 if accum == self.accum_steps:
                     # Unscale, clip gradients, optimizer step
                     self.scaler.unscale_(self.optimizer)
@@ -203,24 +207,35 @@ class Trainer:
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.optimizer.zero_grad()
+
+                    # Compute averaged loss for this optimizer step
+                    avg_step_loss = step_loss / self.accum_steps
                     self.global_step += 1
                     accum = 0
+                    step_loss = 0.0
+
                     # Dynamic logging per step
-                    print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {raw_loss.item():.4f}")
+                    print(f"[Rank {self.local_rank}] Step {self.global_step} | Avg Loss: {avg_step_loss:.4f}")
                     if self.local_rank == 0:
-                        wandb.log({"train_loss": raw_loss.item(), "step": self.global_step})
+                        wandb.log({"train_loss": avg_step_loss}, step=self.global_step)
 
                 if self.global_step >= self.max_steps:
                     break
 
-            # Handle leftover accumulation
+            # Handle leftover accumulation (if the epoch ended mid-accumulation)
             if accum > 0:
                 self.scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 self.optimizer.zero_grad()
-                print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {raw_loss.item():.4f}")
+
+                # Compute averaged leftover loss
+                avg_leftover_loss = step_loss / accum
+                print(f"[Rank {self.local_rank}] Step {self.global_step} | Avg Loss: {avg_leftover_loss:.4f}")
+                if self.local_rank == 0:
+                    wandb.log({"train_loss": avg_leftover_loss}, step=self.global_step)
+
                 self.global_step += 1
 
             avg_loss = total_loss / max(self.global_step, 1)
