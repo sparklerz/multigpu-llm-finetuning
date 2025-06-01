@@ -79,11 +79,12 @@ class Trainer:
         )
 
         # Initialize model with FSDP
-        # Load in full precision and let FSDP handle mixed precision & offloading
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+        # Enable activation checkpointing to save memory
+        model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=False),
+            cpu_offload=CPUOffload(offload_params=True),  # Offload parameters to CPU
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
