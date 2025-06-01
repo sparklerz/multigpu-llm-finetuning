@@ -11,12 +11,12 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
 
-MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
+MODEL_NAME = "bigscience/bloom-560m"
 DATASET_NAME = "ash001/arxiv-abstract"
 
 
@@ -89,7 +89,6 @@ class Trainer:
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=True),
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float32,
                 reduce_dtype=torch.float16,
@@ -97,7 +96,7 @@ class Trainer:
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model
+        self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
@@ -121,7 +120,7 @@ class Trainer:
         # Initialize W&B on rank 0
         if self.local_rank == 0:
             wandb.init(
-                project="llama-fsdp-arxiv",
+                project="bloom-fsdp-arxiv",
                 config={
                     "num_epochs": num_epochs,
                     "start_idx": start_idx,
@@ -132,7 +131,7 @@ class Trainer:
                     "hf_repo": hf_repo
                 }
             )
-            wandb.run.name = f"fsdp-llama3.2-{wandb.run.id}"
+            wandb.run.name = f"fsdp-bloom-{wandb.run.id}"
             # Watch model parameters and gradients
             wandb.watch(self.model.module if hasattr(self.model, 'module') else self.model,
                         log="all", log_freq=10)
@@ -141,7 +140,7 @@ class Trainer:
         if self.local_rank != 0:
             return
         epoch = self.epochs_run + 1
-        name = f"llama3.2_1B_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
+        name = f"bloom_560M_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
         # Save full state dict on rank 0 (gather parameters)
         state = {
             "MODEL_STATE": self.model.state_dict(),
