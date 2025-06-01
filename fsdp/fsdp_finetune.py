@@ -222,7 +222,7 @@ class Trainer:
                 if self.global_step >= self.max_steps:
                     break
 
-            # Handle leftover accumulation (if the epoch ended mid-accumulation)
+            # Handle leftover accumulation
             if accum > 0:
                 self.scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
