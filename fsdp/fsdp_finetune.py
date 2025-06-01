@@ -66,7 +66,7 @@ class Trainer:
         tokenizer.padding_side = "right"
 
         def tokenize_fn(example):
-            tok = tokenizer(example["text"], truncation=True, max_length=128, padding="max_length", return_attention_mask=True)
+            tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length", return_attention_mask=True)
             # Replace pad token labels with -100 to ignore in loss
             labels = tok["input_ids"].copy()
             labels = [lbl if lbl != tokenizer.pad_token_id else -100 for lbl in labels]
@@ -180,11 +180,13 @@ class Trainer:
 
                 with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-                    loss = outputs.loss / self.accum_steps
-                total_loss += loss.item() * self.accum_steps
+                    raw_loss = outputs.loss
+                    scaled_loss = raw_loss / self.accum_steps
+
+                total_loss += raw_loss.item()
 
                 # Backward pass with scaling
-                self.scaler.scale(loss).backward()
+                self.scaler.scale(scaled_loss).backward()
                 accum += 1
                 if accum == self.accum_steps:
                     # Unscale, clip grads, optimizer step
@@ -196,9 +198,9 @@ class Trainer:
                     self.global_step += 1
                     accum = 0
                     # Dynamic logging per step
-                    print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {loss.item():.4f}")
+                    print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {raw_loss.item():.4f}")
                     if self.local_rank == 0:
-                        wandb.log({"train_loss": loss.item(), "step": self.global_step})
+                        wandb.log({"train_loss": raw_loss.item(), "step": self.global_step})
 
                 if self.global_step >= self.max_steps:
                     break
@@ -210,6 +212,7 @@ class Trainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 self.optimizer.zero_grad()
+                print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {raw_loss.item():.4f}")
                 self.global_step += 1
 
             avg_loss = total_loss / max(self.global_step, 1)
