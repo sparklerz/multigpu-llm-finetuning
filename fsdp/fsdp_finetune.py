@@ -12,7 +12,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -67,7 +67,7 @@ class Trainer:
         tokenizer.padding_side = "right"
 
         def tokenize_fn(example):
-            tok = tokenizer(example["text"], truncation=True, max_length=256, padding="max_length", return_attention_mask=True)
+            tok = tokenizer(example["text"], truncation=True, max_length=128, padding="max_length", return_attention_mask=True)
             # Replace pad token labels with -100 to ignore in loss
             labels = tok["input_ids"].copy()
             labels = [lbl if lbl != tokenizer.pad_token_id else -100 for lbl in labels]
@@ -92,6 +92,7 @@ class Trainer:
         model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
+            cpu_offload=CPUOffload(offload_params=True),
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float32,
                 reduce_dtype=torch.float16,
@@ -201,7 +202,8 @@ class Trainer:
                     # Dynamic logging per step
                     print(f"[Rank {self.local_rank}] Step {self.global_step} | Loss: {loss.item():.4f}")
                     if self.local_rank == 0:
-                        wandb.log({'train_loss': loss.item(), 'step': self.global_step})
+                        wandb.log({"train_loss": loss.item(), "step": self.global_step})
+
                 if self.global_step >= self.max_steps:
                     break
 
@@ -230,7 +232,7 @@ def main():
     parser.add_argument("--start_idx", type=int, required=True)
     parser.add_argument("--end_idx", type=int, required=True)
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--accum_steps", type=int, default=16)
+    parser.add_argument("--accum_steps", type=int, default=1)
     parser.add_argument("--initial_epoch", type=int, default=0)
     parser.add_argument("--hf_repo", type=str, required=True)
     parser.add_argument("--resume_file", type=str, default=None)
