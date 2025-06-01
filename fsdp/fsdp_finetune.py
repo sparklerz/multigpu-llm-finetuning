@@ -1,17 +1,21 @@
 import os
 import time
 import math
+import argparse
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch.nn.utils import clip_grad_norm_
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
 import wandb
-from torch.nn.utils import clip_grad_norm_
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, CPUOffload
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
+
+# Make sure each process only uses one OMP thread (avoids NCCL warnings).
+os.environ["OMP_NUM_THREADS"] = "1"
 
 MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
 DATASET_NAME = "ash001/arxiv-abstract"
@@ -39,12 +43,16 @@ class Trainer:
     ):
         self.local_rank, self.world_size = ddp_setup()
         self.device = torch.device(f"cuda:{self.local_rank}")
+        torch.backends.cudnn.benchmark = True
+
         self.num_epochs = num_epochs
         self.start_idx = start_idx
         self.end_idx = end_idx
+        self.batch_size = batch_size
         self.accum_steps = accum_steps
-        self.hf_repo = hf_repo
         self.initial_epoch = initial_epoch
+        self.hf_repo = hf_repo
+        self.resume_file = resume_file
         self.global_step = 0
         self.epochs_run = initial_epoch
 
@@ -84,18 +92,17 @@ class Trainer:
         model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
-            cpu_offload=CPUOffload(offload_params=True),  # Offload parameters to CPU
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float16,
+                param_dtype=torch.float32,
                 reduce_dtype=torch.float16,
-                buffer_dtype=torch.float16
+                buffer_dtype=torch.float16,
             ),
             device_id=self.local_rank
         )
-        self.model = fsdp_model.to(self.device)
+        self.model = fsdp_model
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)  # Reduced LR
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
         self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
@@ -107,8 +114,9 @@ class Trainer:
             from huggingface_hub import hf_hub_download
             ckpt_path = hf_hub_download(repo_id=hf_repo, filename=resume_file)
             ckpt = torch.load(ckpt_path, map_location=self.device)
-            self.model.load_state_dict(ckpt['MODEL_STATE'])
-            self.global_step = ckpt.get('GLOBAL_STEP', 0)
+            self.model.load_state_dict(ckpt["MODEL_STATE"])
+            self.global_step = ckpt.get("GLOBAL_STEP", 0)
+            self.epochs_run = ckpt.get("EPOCHS_RUN", initial_epoch)
             print(f"[Rank {self.local_rank}] Resumed from {resume_file} at step {self.global_step}")
         dist.barrier()
 
@@ -168,12 +176,12 @@ class Trainer:
             total_loss = 0.0
             accum = 0
             for batch in self.loader:
-                # Move inputs to device
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                labels = batch['labels'].to(self.device)
+                # Send data to the local GPU
+                input_ids = batch["input_ids"].to(self.device, non_blocking=True)
+                attention_mask = batch["attention_mask"].to(self.device, non_blocking=True)
+                labels = batch["labels"].to(self.device, non_blocking=True)
 
-                with torch.amp.autocast(device_type='cuda'):
+                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     loss = outputs.loss / self.accum_steps
                 total_loss += loss.item() * self.accum_steps
@@ -206,17 +214,17 @@ class Trainer:
                 self.optimizer.zero_grad()
                 self.global_step += 1
 
-            avg_loss = total_loss / (self.max_steps or 1)
+            avg_loss = total_loss / max(self.global_step, 1)
             print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
             if self.local_rank == 0:
-                wandb.log({'epoch': ep+1, 'avg_loss': avg_loss})
+                wandb.log({"epoch": ep + 1, "avg_loss": avg_loss})
+
             self.epochs_run += 1
             self._save_checkpoint()
             dist.barrier()
 
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_epochs", type=int, required=True)
     parser.add_argument("--start_idx", type=int, required=True)
