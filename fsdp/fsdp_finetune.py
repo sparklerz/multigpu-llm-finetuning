@@ -172,7 +172,7 @@ class Trainer:
             self.loader.sampler.set_epoch(ep)
             total_loss = 0.0
             accum = 0
-            for batch in self.loader:
+            for microbatch_idx, batch in enumerate(self.loader):
                 # Send data to the local GPU
                 input_ids = batch["input_ids"].to(self.device, non_blocking=True)
                 attention_mask = batch["attention_mask"].to(self.device, non_blocking=True)
@@ -183,13 +183,21 @@ class Trainer:
                     raw_loss = outputs.loss
                     scaled_loss = raw_loss / self.accum_steps
 
+                # Check for NaN and print exactly which microbatch it occurred
+                if torch.isnan(raw_loss):
+                    print(
+                        f"[Rank {self.local_rank}] *** raw_loss is NaN at "
+                        f"epoch {ep}, microbatch {microbatch_idx}, "
+                        f"accum-step {accum}, global_step {self.global_step} ***"
+                    )
+
                 total_loss += raw_loss.item()
 
                 # Backward pass with scaling
                 self.scaler.scale(scaled_loss).backward()
                 accum += 1
                 if accum == self.accum_steps:
-                    # Unscale, clip grads, optimizer step
+                    # Unscale, clip gradients, optimizer step
                     self.scaler.unscale_(self.optimizer)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.scaler.step(self.optimizer)
