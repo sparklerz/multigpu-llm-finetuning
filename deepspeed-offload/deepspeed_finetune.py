@@ -85,6 +85,7 @@ class Trainer:
             epoch_start = time.time()
             step_in_epoch = 0
             for batch in self.dataloader:
+                prev_step = self.engine.global_steps
                 # Move inputs to GPU
                 input_ids = batch["input_ids"].to(self.device)
                 attention_mask = batch["attention_mask"].to(self.device)
@@ -96,24 +97,26 @@ class Trainer:
                 self.engine.backward(loss)
                 self.engine.step()
 
-                # Log to Weights & Biases (loss * accum_steps gives “actual” loss)
-                if self.engine.local_rank == 0:
-                    actual_loss = loss.item() * self.args.accum_steps
-                    self.sum_loss += actual_loss
-                    self.steps_count += 1
-                    print(f"[Rank 0] Step {self.engine.global_steps}   Loss = {actual_loss:.4f}")
-                    wandb.log({
-                        "train_loss": actual_loss,
-                        "epoch": epoch,
-                        "step": self.engine.global_steps
-                    }, step=self.engine.global_steps)
+                curr_step = self.engine.global_steps
+                if curr_step > prev_step:
+                    # Log to Weights & Biases (loss * accum_steps gives “actual” loss)
+                    if self.engine.local_rank == 0:
+                        actual_loss = loss.item() * self.args.accum_steps
+                        self.sum_loss += actual_loss
+                        self.steps_count += 1
+                        print(f"[Rank 0] Step {curr_step}   Loss = {actual_loss:.4f}")
+                        wandb.log({
+                            "train_loss": actual_loss,
+                            "epoch": epoch,
+                            "step": curr_step
+                        }, step=curr_step)
 
-                self.global_step += 1
-                step_in_epoch += 1
-                if self.global_step >= self.max_steps:
-                    print(f"[Rank {self.engine.local_rank}] Reached max_steps {self.max_steps}, exiting early")
-                    self.save_checkpoint(epoch)
-                    return
+                    self.global_step += 1
+                    step_in_epoch += 1
+                    if self.global_step >= self.max_steps:
+                        print(f"[Rank {self.engine.local_rank}] Reached max_steps {self.max_steps}, exiting early")
+                        self.save_checkpoint(epoch)
+                        return
 
             epoch_time = time.time() - epoch_start
             if self.engine.local_rank == 0:
