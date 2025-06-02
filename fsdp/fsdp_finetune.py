@@ -11,7 +11,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -137,11 +137,9 @@ class Trainer:
                         log="all", log_freq=10)
 
     def _save_checkpoint(self):
-        full_state_dict_cfg = FullStateDictConfig(
-            offload_to_cpu=True,  # if you want to send parameters to CPU first
-            rank0_only=True       # only rank 0 ends up with the unified state
-        )
-        sd = self.model.state_dict(full_state_dict_config=full_state_dict_cfg)
+        full_state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, full_state_dict_cfg):
+            sd = self.model.state_dict()
 
         if self.local_rank == 0:
             epoch = self.epochs_run + 1
