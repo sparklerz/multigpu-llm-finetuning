@@ -1,0 +1,5 @@
+deepspeed
+transformers
+datasets
+wandb
+huggingface_hub
