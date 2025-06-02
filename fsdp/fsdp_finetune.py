@@ -58,6 +58,7 @@ class Trainer:
         # Load and prepare dataset slice
         ds = load_dataset(DATASET_NAME, split="train")
         ds = ds.select(range(start_idx, end_idx))
+        ds = ds.filter(lambda ex: ex["text"] and ex["text"].strip())
 
         # Tokenizer setup (ensure pad_token exists)
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -91,15 +92,15 @@ class Trainer:
             model,
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float32,
-                reduce_dtype=torch.float32,
-                buffer_dtype=torch.float32,
+                reduce_dtype=torch.float16,
+                buffer_dtype=torch.float16,
             ),
             device_id=self.local_rank
         )
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-7)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
         self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
