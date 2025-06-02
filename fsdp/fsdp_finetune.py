@@ -143,7 +143,7 @@ class Trainer:
             sd = self.model.state_dict()
 
         if self.local_rank == 0:
-            epoch = self.epochs_run + 1
+            epoch = self.epochs_run
             name = f"bloom_560M_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
             torch.save({
                 "MODEL_STATE": sd,
