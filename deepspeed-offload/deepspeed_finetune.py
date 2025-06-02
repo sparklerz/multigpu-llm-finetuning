@@ -8,6 +8,7 @@ import wandb
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
 from huggingface_hub import HfApi, hf_hub_download
+from deepspeed.ops.adam import DeepSpeedCPUAdam
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DeepSpeed ZeRO-Offload: Llama-3.2-1B Finetune on arXiv Abstracts")
@@ -224,7 +225,7 @@ def main():
     # -------------------------------
     # 5. Build the Optimizer
     # -------------------------------
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-5)
+    optimizer = DeepSpeedCPUAdam(model.parameters(), lr=3e-5)
 
     # -------------------------------
     # 6. Construct DeepSpeed Config (Stage 2 + CPU Offload + FP16)
