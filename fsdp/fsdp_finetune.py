@@ -117,8 +117,8 @@ class Trainer:
             sd = torch.load(resume_file if self.local_rank == 0 else cp_path, map_location="cpu")
 
             set_state_dict(
-                module=self.model,
-                state_dict=sd,
+                self.model,
+                sd,
                 group=dist.group.WORLD,
             )
             print(f"[Rank {self.local_rank}] Resumed from {resume_file} at step {self.global_step}")
@@ -146,7 +146,7 @@ class Trainer:
     def _save_checkpoint(self):
         full_state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
         sd = get_state_dict(
-            module=self.model,
+            self.model,
             group=dist.group.WORLD,                 # usually default process group
             state_dict_type=StateDictType.FULL_STATE_DICT,
             config=full_state_dict_cfg
@@ -240,11 +240,10 @@ class Trainer:
 
                 # Compute averaged leftover loss
                 avg_leftover_loss = step_loss / accum
+                self.global_step += 1
                 print(f"[Rank {self.local_rank}] Step {self.global_step} | Avg Loss: {avg_leftover_loss:.4f}")
                 if self.local_rank == 0:
                     wandb.log({"train_loss": avg_leftover_loss}, step=self.global_step)
-
-                self.global_step += 1
 
             avg_loss = total_loss / max(self.global_step, 1)
             print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
