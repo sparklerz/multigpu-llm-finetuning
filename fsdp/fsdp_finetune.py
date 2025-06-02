@@ -11,7 +11,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -91,15 +91,15 @@ class Trainer:
             model,
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float32,
-                reduce_dtype=torch.float16,
-                buffer_dtype=torch.float16,
+                reduce_dtype=torch.float32,
+                buffer_dtype=torch.float32,
             ),
             device_id=self.local_rank
         )
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-7)
         self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
@@ -137,34 +137,37 @@ class Trainer:
                         log="all", log_freq=10)
 
     def _save_checkpoint(self):
-        if self.local_rank != 0:
-            return
-        epoch = self.epochs_run + 1
-        name = f"bloom_560M_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
-        # Save full state dict on rank 0 (gather parameters)
-        state = {
-            "MODEL_STATE": self.model.state_dict(),
-            "GLOBAL_STEP": self.global_step,
-            "EPOCHS_RUN": self.epochs_run
-        }
-        torch.save(state, name)
-        print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
-        if self.hf_repo:
-            from huggingface_hub import HfApi
-            HfApi().upload_file(
-                path_or_fileobj=name,
-                path_in_repo=name,
-                repo_id=self.hf_repo,
-                repo_type="model"
-            )
-        # Log as W&B artifact
-        artifact = wandb.Artifact(
-            name=f"model-epoch-{epoch}",
-            type="model",
-            description=f"Checkpoint at epoch {epoch}"
+        full_state_dict_cfg = FullStateDictConfig(
+            offload_to_cpu=True,  # if you want to send parameters to CPU first
+            rank0_only=True       # only rank 0 ends up with the unified state
         )
-        artifact.add_file(name)
-        wandb.log_artifact(artifact)
+        sd = self.model.state_dict(full_state_dict_config=full_state_dict_cfg)
+
+        if self.local_rank == 0:
+            epoch = self.epochs_run + 1
+            name = f"bloom_560M_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
+            torch.save({
+                "MODEL_STATE": sd,
+                "GLOBAL_STEP": self.global_step,
+                "EPOCHS_RUN": self.epochs_run
+            }, name)
+            print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
+            if self.hf_repo:
+                from huggingface_hub import HfApi
+                HfApi().upload_file(
+                    path_or_fileobj=name,
+                    path_in_repo=name,
+                    repo_id=self.hf_repo,
+                    repo_type="model"
+                )
+            # Log as W&B artifact
+            artifact = wandb.Artifact(
+                name=f"model-epoch-{epoch}",
+                type="model",
+                description=f"Checkpoint at epoch {epoch}"
+            )
+            artifact.add_file(name)
+            wandb.log_artifact(artifact)
 
     def train(self):
         self.model.train()
