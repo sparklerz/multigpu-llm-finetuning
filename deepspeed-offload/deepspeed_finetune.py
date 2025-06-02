@@ -11,6 +11,10 @@ from huggingface_hub import HfApi, hf_hub_download
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DeepSpeed ZeRO-Offload: Llama-3.2-1B Finetune on arXiv Abstracts")
+    # Accept DeepSpeed's injected local_rank (even if unused directly)
+    parser.add_argument("--local_rank", type=int, default=0,
+        help="(DeepSpeed) Local rank passed automatically; no need to set manually."
+    )
     # Core finetuning params (mirroring multigpu_torchrun.py)
     parser.add_argument("--num_epochs", type=int, required=True,
                         help="Number of epochs to run")
