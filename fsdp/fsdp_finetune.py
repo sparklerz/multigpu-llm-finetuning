@@ -8,7 +8,6 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.utils import clip_grad_norm_
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
-from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 import wandb
 
 # FSDP imports
@@ -109,18 +108,13 @@ class Trainer:
         self.max_steps = math.ceil(total_samples / (batch_size * self.world_size * accum_steps))
 
         # Resume checkpoint if specified
-        if hf_repo and resume_file:
-            if self.local_rank == 0:
-                from huggingface_hub import hf_hub_download
-                cp_path = hf_hub_download(repo_id=hf_repo, filename=resume_file)
-            dist.barrier()
-            sd = torch.load(resume_file if self.local_rank == 0 else cp_path, map_location="cpu")
-
-            set_state_dict(
-                self.model,
-                sd,
-                process_group=dist.group.WORLD,
-            )
+        if hf_repo and resume_file and self.local_rank == 0:
+            from huggingface_hub import hf_hub_download
+            ckpt_path = hf_hub_download(repo_id=hf_repo, filename=resume_file)
+            ckpt = torch.load(ckpt_path, map_location=self.device)
+            self.model.load_state_dict(ckpt["MODEL_STATE"])
+            self.global_step = ckpt.get("GLOBAL_STEP", 0)
+            self.epochs_run = ckpt.get("EPOCHS_RUN", initial_epoch)
             print(f"[Rank {self.local_rank}] Resumed from {resume_file} at step {self.global_step}")
         dist.barrier()
 
@@ -145,17 +139,17 @@ class Trainer:
 
     def _save_checkpoint(self):
         full_state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        sd = get_state_dict(
-            self.model,
-            process_group=dist.group.WORLD,                 # usually default process group
-            state_dict_type=StateDictType.FULL_STATE_DICT,
-            config=full_state_dict_cfg
-        )
+        with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, full_state_dict_cfg):
+            sd = self.model.state_dict()
 
         if self.local_rank == 0:
             epoch = self.epochs_run + 1
             name = f"bloom_560M_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
-            torch.save(sd, name)
+            torch.save({
+                "MODEL_STATE": sd,
+                "GLOBAL_STEP": self.global_step,
+                "EPOCHS_RUN": self.epochs_run
+            }, name)
             print(f"[Rank {self.local_rank}] Saved checkpoint {name}")
             if self.hf_repo:
                 from huggingface_hub import HfApi
