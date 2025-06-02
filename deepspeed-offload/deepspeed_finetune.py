@@ -101,12 +101,12 @@ class Trainer:
                     actual_loss = loss.item() * self.args.accum_steps
                     self.sum_loss += actual_loss
                     self.steps_count += 1
-                    print(f"[Rank 0] Step {self.engine.global_steps()}   Loss = {actual_loss:.4f}")
+                    print(f"[Rank 0] Step {self.engine.global_steps}   Loss = {actual_loss:.4f}")
                     wandb.log({
                         "train_loss": actual_loss,
                         "epoch": epoch,
-                        "step": self.engine.global_steps()
-                    }, step=self.engine.global_steps())
+                        "step": self.engine.global_steps
+                    }, step=self.engine.global_steps)
 
                 self.global_step += 1
                 step_in_epoch += 1
