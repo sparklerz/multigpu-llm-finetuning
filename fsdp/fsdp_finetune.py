@@ -119,7 +119,7 @@ class Trainer:
             set_state_dict(
                 self.model,
                 sd,
-                group=dist.group.WORLD,
+                process_group=dist.group.WORLD,
             )
             print(f"[Rank {self.local_rank}] Resumed from {resume_file} at step {self.global_step}")
         dist.barrier()
@@ -147,7 +147,7 @@ class Trainer:
         full_state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
         sd = get_state_dict(
             self.model,
-            group=dist.group.WORLD,                 # usually default process group
+            process_group=dist.group.WORLD,                 # usually default process group
             state_dict_type=StateDictType.FULL_STATE_DICT,
             config=full_state_dict_cfg
         )
