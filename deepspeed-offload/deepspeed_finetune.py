@@ -46,6 +46,8 @@ class Trainer:
         self.dataloader = dataloader
         self.optimizer = optimizer
         self.device = device
+        self.sum_loss   = 0.0
+        self.steps_count = 0
 
         # Track how many samples we will process per epoch slice
         total_samples = args.end_idx - args.start_idx
@@ -96,8 +98,12 @@ class Trainer:
 
                 # Log to Weights & Biases (loss * accum_steps gives “actual” loss)
                 if self.engine.local_rank == 0:
+                    actual_loss = loss.item() * self.args.accum_steps
+                    self.sum_loss += actual_loss
+                    self.steps_count += 1
+                    print(f"[Rank 0] Step {self.engine.global_steps()}   Loss = {actual_loss:.4f}")
                     wandb.log({
-                        "train_loss": loss.item() * self.args.accum_steps,
+                        "train_loss": actual_loss,
                         "epoch": epoch,
                         "step": self.engine.global_steps()
                     }, step=self.engine.global_steps())
@@ -111,7 +117,8 @@ class Trainer:
 
             epoch_time = time.time() - epoch_start
             if self.engine.local_rank == 0:
-                print(f"[Rank 0] Finished epoch {epoch} in {epoch_time:.1f}s; saving checkpoint…")
+                avg_loss = self.sum_loss / self.steps_count
+                print(f"[Rank 0] Average training loss over {self.steps_count} steps = {avg_loss:.4f}")
             self.save_checkpoint(epoch)
 
 def main():
@@ -282,7 +289,7 @@ def main():
     if local_rank == 0:
         print("[Rank 0] DeepSpeed Engine initialized")
         print(f"[Rank 0] World size: {model_engine.world_size}, "
-              f"ZeRO stage: {model_engine.optimizer.zero_stage}")
+              f"ZeRO stage: {ds_config_dict['zero_optimization']['stage']}")
 
     # -------------------------------
     # 8. Run Training
