@@ -92,8 +92,7 @@ class LlamaPipeModel(PipelineModule):
             model_name,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
-            device_map="auto"  # This tells HF to place each submodule onto GPUs if available,
-                               # but PipelineModule will override placement per stage.
+            device_map=None
         )
 
         # 2) Extract submodules in the correct order: embeddings → each block → final norm + lm_head
