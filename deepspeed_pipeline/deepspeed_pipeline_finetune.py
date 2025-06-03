@@ -126,8 +126,7 @@ class LlamaPipeModel(PipelineModule):
             layers=layers,
             loss_fn=loss_fn,
             num_stages=num_stages,
-            partition_method="parameters",  # “parameters” shards each layer’s weights; alternatives exist
-            seed=42
+            partition_method="parameters"  # “parameters” shards each layer’s weights; alternatives exist
         )
 
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
