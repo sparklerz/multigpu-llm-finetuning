@@ -338,7 +338,7 @@ def main():
         print(f"[Rank {local_rank}] Filtered & sliced dataset has {len(ds)} samples.")
 
     # 4) Tokeniser & tokenisation
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.model_max_length = TARGET_SEQ_LEN
