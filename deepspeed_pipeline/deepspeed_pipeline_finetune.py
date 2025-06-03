@@ -211,7 +211,7 @@ class Trainer:
 
         # For W&B: rank 0 initialises W&B; other ranks skip
         if self.local_rank == 0:
-            wandb.init(project="llama7b-pipeline-finetune",
+            wandb.init(project="llama8b-pipeline-finetune",
                        name=f"slice_{start_idx}_{end_idx}",
                        config={
                            "model_name": MODEL_NAME,
