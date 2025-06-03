@@ -4,3 +4,5 @@ transformers
 datasets
 wandb
 huggingface_hub
+tiktoken
+blobfile
