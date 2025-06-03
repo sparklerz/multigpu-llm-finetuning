@@ -26,7 +26,7 @@ from huggingface_hub import HfApi, hf_hub_download
 #  1. CONFIGURATION / HYPERPARAMETERS
 # ───────────────────────────────────────────────────────────────────────────────
 
-MODEL_NAME = "meta-llama/Llama-2-7b-chat-hf"
+MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"
 DATASET_NAME = "ash001/arxiv-abstract"
 TARGET_SEQ_LEN = 512  # max token length per example
 WARMUP_STEPS = 100
@@ -56,7 +56,7 @@ def parse_args():
     p.add_argument("--initial_epoch", type=int, default=0,
                    help="Epoch number to resume from (overrides checkpoint epoch in resume_file)")
     p.add_argument("--hf_repo", type=str, required=True,
-                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-llama-7b'")
+                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-llama-3b'")
     p.add_argument("--resume_file", type=str, default=None,
                    help="Checkpoint filename in the HF repo, e.g. 'checkpoint_epoch_1.pt'")
 
@@ -209,7 +209,7 @@ class Trainer:
 
         # For W&B: rank 0 initialises W&B; other ranks skip
         if self.local_rank == 0:
-            wandb.init(project="llama7b-pipeline-finetune",
+            wandb.init(project="llama3b-pipeline-finetune",
                        name=f"slice_{start_idx}_{end_idx}",
                        config={
                            "model_name": MODEL_NAME,
