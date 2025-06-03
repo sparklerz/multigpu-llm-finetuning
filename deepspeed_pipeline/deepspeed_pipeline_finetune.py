@@ -70,7 +70,7 @@ def parse_args():
 # ───────────────────────────────────────────────────────────────────────────────
 
 def ds_setup():
-    # DeepSpeed will have already initialised torch.distributed via the launcher.
+    deepspeed.init_distributed()  # calls torch.distributed.init_process_group under the hood
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = torch.distributed.get_world_size()
     torch.cuda.set_device(local_rank)
