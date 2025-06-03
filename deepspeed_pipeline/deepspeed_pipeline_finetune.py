@@ -342,6 +342,8 @@ def main():
 
     # 4) Tokeniser & tokenisation
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     tokenizer.model_max_length = TARGET_SEQ_LEN
 
     def tokenize_fn(ex):
