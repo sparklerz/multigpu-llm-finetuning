@@ -42,7 +42,8 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="DeepSpeed Pipeline Parallelism: Fine-tune Llama with 2 GPUs + ZeRO2"
     )
-
+    p.add_argument("--local_rank", type=int, default=0,
+                   help="(DeepSpeed) Local rank, passed automatically")
     p.add_argument("--num_epochs", type=int, required=True,
                    help="Number of epochs to run")
     p.add_argument("--start_idx", type=int, required=True,
