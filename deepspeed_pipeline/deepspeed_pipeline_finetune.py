@@ -385,8 +385,15 @@ def main():
             "allgather_bucket_size": 2e8,
             "reduce_scatter": True,
             "reduce_bucket_size": 2e8,
-            "overlap_comm": True,
-            "contiguous_gradients": True
+            "overlap_comm": False,
+            "contiguous_gradients": True,
+            "offload_optimizer": {
+                "device": "cpu",
+                "pin_memory": True
+            },
+            "offload_param": {
+                "device": "none"
+            }
         },
 
         # No need to explicitly say “pipeline”: PipelineModule API handles that as long as we 
