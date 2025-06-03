@@ -26,8 +26,7 @@ from huggingface_hub import HfApi, hf_hub_download
 #  1. CONFIGURATION / HYPERPARAMETERS
 # ───────────────────────────────────────────────────────────────────────────────
 
-# Change to "meta-llama/Llama-3.2-1B-Instruct" if you want the 1B model.
-MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"  # <-- Use 1B if you don't mind single-GPU feasibility.
+MODEL_NAME = "meta-llama/Llama-2-7b-chat"
 DATASET_NAME = "ash001/arxiv-abstract"
 TARGET_SEQ_LEN = 512  # max token length per example
 WARMUP_STEPS = 100
@@ -210,7 +209,7 @@ class Trainer:
 
         # For W&B: rank 0 initialises W&B; other ranks skip
         if self.local_rank == 0:
-            wandb.init(project="llama8b-pipeline-finetune",
+            wandb.init(project="llama7b-pipeline-finetune",
                        name=f"slice_{start_idx}_{end_idx}",
                        config={
                            "model_name": MODEL_NAME,
