@@ -26,7 +26,7 @@ from huggingface_hub import HfApi, hf_hub_download
 #  1. CONFIGURATION / HYPERPARAMETERS
 # ───────────────────────────────────────────────────────────────────────────────
 
-MODEL_NAME = "meta-llama/Llama-2-7b-chat"
+MODEL_NAME = "meta-llama/Llama-2-7b-chat-hf"
 DATASET_NAME = "ash001/arxiv-abstract"
 TARGET_SEQ_LEN = 512  # max token length per example
 WARMUP_STEPS = 100
