@@ -421,7 +421,7 @@ def main():
         },
 
         "fp16": {
-            "enabled": True,
+            "enabled": False,
             "loss_scale": 0,           # “auto” if set to 0
             "loss_scale_window": 1000,
             "hysteresis": 2,
