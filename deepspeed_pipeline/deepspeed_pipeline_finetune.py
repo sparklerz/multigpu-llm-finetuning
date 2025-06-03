@@ -263,29 +263,23 @@ class Trainer:
             accum_counter = 0
 
             for step, batch in enumerate(self.dataloader):
-                # Move batch to correct device
-                input_ids = batch["input_ids"].to(self.device)
-                attention_mask = batch["attention_mask"].to(self.device)
-                labels = batch["labels"].to(self.device)
-
-                # Forward + backward via DeepSpeed engine
-                loss = self.engine(input_ids, attention_mask, labels)
-
-                # DeepSpeed does loss_scaling internally in fp16; call backward via engine
-                self.engine.backward(loss)
-                accum_counter += 1
-
-                # When accum_counter == accum_steps, we do one optimizer step
-                if accum_counter == self.accum_steps:
-                    self.engine.step()
-                    self.global_step += 1
-                    if self.local_rank == 0:
-                        wandb.log({"train_loss": loss.item(), "step": self.global_step})
-                    accum_counter = 0
-
-                    # Early exit if we’ve done enough steps
-                    if self.global_step >= self.max_steps:
-                        break
+                # DeepSpeed pipeline expects the arguments exactly as your
+                # LlamaPipeModel.forward() signature, packed in a tuple / list.
+                micro = (
+                    batch["input_ids"].to(self.device),
+                    batch["attention_mask"].to(self.device),
+                    batch["labels"].to(self.device)
+                )
+                
+                loss = self.engine.train_batch(micro)   # handles fwd+back+opt step
+                
+                if self.local_rank == 0:
+                    wandb.log({"train_loss": loss.item(), "step": self.global_step})
+                
+                self.global_step += 1
+                
+                if self.global_step >= self.max_steps:
+                    break
 
             # Finish any leftover gradients
             if accum_counter > 0:
@@ -421,6 +415,11 @@ def main():
                 "warmup_max_lr": LEARNING_RATE,
                 "warmup_num_steps": WARMUP_STEPS
             }
+        },
+
+        "pipeline": {
+            "pipe_partitioned":  True,
+            "grad_partitioned":  True
         },
 
         "fp16": {
