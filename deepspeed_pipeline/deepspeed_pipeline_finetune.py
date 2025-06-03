@@ -380,7 +380,7 @@ def main():
         "wall_clock_breakdown": True,
 
         "zero_optimization": {
-            "stage": 2,
+            "stage": 1,
             "allgather_partitions": True,
             "allgather_bucket_size": 2e8,
             "reduce_scatter": True,
@@ -390,9 +390,6 @@ def main():
             "offload_optimizer": {
                 "device": "cpu",
                 "pin_memory": True
-            },
-            "offload_param": {
-                "device": "none"
             }
         },
 
