@@ -39,7 +39,7 @@ LEARNING_RATE = 1e-5
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(
-        description="DeepSpeed Pipeline Parallelism: Fine-tune Llama with 2 GPUs + ZeRO2"
+        description="DeepSpeed Pipeline Parallelism: Fine-tune Llama with 2 GPUs + ZeRO1"
     )
     p.add_argument("--local_rank", type=int, default=0,
                    help="(DeepSpeed) Local rank, passed automatically")
@@ -214,7 +214,7 @@ class Trainer:
                        config={
                            "model_name": MODEL_NAME,
                            "num_stages": 2,
-                           "zero_stage": 2,
+                           "zero_stage": 1,
                            "batch_size_per_gpu": bs_per_gpu,
                            "accum_steps": accum_steps,
                            "learning_rate": LEARNING_RATE,
@@ -376,27 +376,15 @@ def main():
         "zero_optimization": {
             "stage": 1,
             "allgather_partitions": True,
-            "allgather_bucket_size": 2e8,
+            "allgather_bucket_size": 5e8,
             "reduce_scatter": True,
-            "reduce_bucket_size": 2e8,
+            "reduce_bucket_size": 5e8,
             "overlap_comm": False,
             "contiguous_gradients": True,
             "offload_optimizer": {
-                "device": "cpu",
-                "pin_memory": True
+                "device": "none"
             }
         },
-
-        # No need to explicitly say “pipeline”: PipelineModule API handles that as long as we 
-        # invoked deepspeed.initialize(model=PipelineModule, …) with --num_stages=2.
-        #
-        # If you want to force a particular partition method, you can also add:
-        # "pipeline": {
-        #     "partition_method": "parameters",
-        #     "activation_checkpoint_interval": 0
-        # }
-        #
-        # But the above is optional since PipelineModule already knows our partition_method.
 
         "optimizer": {
             "type": "AdamW",
@@ -418,16 +406,13 @@ def main():
         },
 
         "pipeline": {
-            "pipe_partitioned":  True,
-            "grad_partitioned":  True
+            "pipe_partitioned": True,
+            "grad_partitioned": True
         },
 
         "fp16": {
-            "enabled": False,
-            "loss_scale": 0,           # “auto” if set to 0
-            "loss_scale_window": 1000,
-            "hysteresis": 2,
-            "min_loss_scale": 1
+            "enabled": True,
+            "loss_scale": 0
         }
     }
 
