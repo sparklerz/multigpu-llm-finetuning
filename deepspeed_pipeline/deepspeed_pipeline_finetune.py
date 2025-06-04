@@ -123,43 +123,47 @@ class GemmaPipeModel(PipelineModule):
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
         self.config = hf_model.config
 
-class GemmaInputStage(torch.nn.Module):
-    """embed_tokens + embed_positions → (hidden, pos)"""
+class GemmaInputStage(nn.Module):
+    """
+    Token embedding + one-time RoPE cache → (hidden, cos, sin)
+
+    Gemma’s rotary_emb is identical for every layer, so we can build the
+    cos/sin cache once on the first stage and forward it unchanged.
+    """
     def __init__(self, hf):
         super().__init__()
-        self.embed_tokens     = hf.model.embed_tokens
-        self.embed_positions  = hf.model.embed_positions
+        self.embed_tokens = hf.model.embed_tokens
+        # grab the rotary object from the very first layer
+        self.rotary_emb   = hf.model.layers[0].self_attn.rotary_emb
 
     def forward(self, input_ids):
-        # hidden_states: [B, L, E]
-        hidden = self.embed_tokens(input_ids)
-        # position ids 0‥L-1 broadcast to the batch
-        pos_ids = torch.arange(hidden.size(1),
-                               device=hidden.device).unsqueeze(0).expand_as(input_ids)
-        pos_emb = self.embed_positions(pos_ids)            # [B, L, E]
-        return (hidden, pos_emb)
+        hidden = self.embed_tokens(input_ids)              # [B, L, E]
+        seq_len = hidden.size(1)
+        # transformers-style API: returns (cos, sin) tensors of shape [L, H]
+        cos, sin = self.rotary_emb.get_cos_sin(seq_len, hidden.device)
+        return (hidden, cos, sin)                          # tuple of THREE tensors
 
 
-class GemmaDecoderWrapper(torch.nn.Module):
-    """one decoder layer that keeps (hidden, pos) tuple shape"""
+class GemmaDecoderWrapper(nn.Module):
+    """Keeps tuple (hidden, cos, sin) intact."""
     def __init__(self, layer):
         super().__init__()
         self.layer = layer
 
-    def forward(self, hp):
-        hidden, pos = hp
-        hidden = self.layer(hidden, pos)                   # attn-mask defaults to None
-        return (hidden, pos)                               # keep tuple
+    def forward(self, hcs):
+        hidden, cos, sin = hcs
+        hidden = self.layer(hidden, position_embeddings=(cos, sin))
+        return (hidden, cos, sin)
 
 
-class GemmaNormWrapper(torch.nn.Module):
-    """final layer-norm drops position_embeddings"""
+class GemmaNormWrapper(nn.Module):
+    """Drops the RoPE cache after the final norm so `lm_head` sees plain hidden."""
     def __init__(self, norm):
         super().__init__()
         self.norm = norm
 
-    def forward(self, hp):
-        hidden, _ = hp
+    def forward(self, hcs):
+        hidden, _, _ = hcs
         return self.norm(hidden)
 
 # ───────────────────────────────────────────────────────────────────────────────
