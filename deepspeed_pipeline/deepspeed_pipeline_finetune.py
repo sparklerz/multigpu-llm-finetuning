@@ -123,14 +123,16 @@ class GemmaPipeModel(PipelineModule):
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
         self.config = hf_model.config
 
-    def forward(self, input_ids, attention_mask, labels):
+    def forward(self, batch):
         """
         PipelineModule’s forward() automatically chops the input batch into micro-batches
         and passes them through each stage. We just need to define how to compute loss from logits.
         """
+        input_ids, attention_mask, labels = batch
+
         # PipelineModule will run all “layers” in a sequence and the final output (call it logits)
         # will be a tensor of shape (batch_size, seq_len, vocab_size). We compute loss vs labels.
-        logits = super().forward(input_ids, attention_mask)
+        logits = super().forward(input_ids)
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
 
@@ -254,14 +256,13 @@ class Trainer:
             self.epoch = ep
             self.dataloader.sampler.set_epoch(ep)
 
-            for step, batch in enumerate(self.dataloader):          # <- unpack enumerate
-                # move to this GPU
-                input_ids      = batch["input_ids"].to(self.device)
-                attention_mask = batch["attention_mask"].to(self.device)
-                labels         = batch["labels"].to(self.device)
+            for step, batch in enumerate(self.dataloader):
+                batch = {k: v.to(self.device) for k, v in batch.items()}
 
-                # DeepSpeed Pipeline wants an iterator that yields a tuple of args
-                micro = (input_ids, attention_mask, labels)
+                micro = (batch["input_ids"],
+                        batch["attention_mask"],
+                        batch["labels"])
+
                 loss = self.engine.train_batch(iter([micro]))
 
                 if self.local_rank == 0:
