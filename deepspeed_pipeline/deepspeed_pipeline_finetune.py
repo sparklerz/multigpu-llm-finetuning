@@ -128,7 +128,7 @@ class GemmaPipeModel(PipelineModule):
         PipelineModule’s forward() automatically chops the input batch into micro-batches
         and passes them through each stage. We just need to define how to compute loss from logits.
         """
-        input_ids, attention_mask, labels = batch
+        input_ids, labels = batch
 
         # PipelineModule will run all “layers” in a sequence and the final output (call it logits)
         # will be a tensor of shape (batch_size, seq_len, vocab_size). We compute loss vs labels.
@@ -259,9 +259,7 @@ class Trainer:
             for step, batch in enumerate(self.dataloader):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
 
-                micro = (batch["input_ids"],
-                        batch["attention_mask"],
-                        batch["labels"])
+                micro = (batch["input_ids"], batch["labels"])
 
                 loss = self.engine.train_batch(iter([micro]))
 
