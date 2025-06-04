@@ -97,14 +97,14 @@ class GemmaPipeModel(PipelineModule):
         #    We’ll break them out into a linear Python list of Layers.
         layers = []
         # Embedding
-        layers.append(hf_model.model.embed_tokens)
+        layers.append(GemmaInputStage(hf_model))
 
         # Transformer Blocks
         for block in hf_model.model.layers:
-            layers.append(block)
+            layers.append(GemmaDecoderWrapper(block))
 
         # Final layer norm
-        layers.append(hf_model.model.norm)
+        layers.append(GemmaNormWrapper(hf_model.model.norm))
 
         # LM head (tie weights with embedding in HF, but we can include it as a standalone module)
         layers.append(hf_model.lm_head)
@@ -122,6 +122,45 @@ class GemmaPipeModel(PipelineModule):
 
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
         self.config = hf_model.config
+
+class GemmaInputStage(torch.nn.Module):
+    """embed_tokens + embed_positions → (hidden, pos)"""
+    def __init__(self, hf):
+        super().__init__()
+        self.embed_tokens     = hf.model.embed_tokens
+        self.embed_positions  = hf.model.embed_positions
+
+    def forward(self, input_ids):
+        # hidden_states: [B, L, E]
+        hidden = self.embed_tokens(input_ids)
+        # position ids 0‥L-1 broadcast to the batch
+        pos_ids = torch.arange(hidden.size(1),
+                               device=hidden.device).unsqueeze(0).expand_as(input_ids)
+        pos_emb = self.embed_positions(pos_ids)            # [B, L, E]
+        return (hidden, pos_emb)
+
+
+class GemmaDecoderWrapper(torch.nn.Module):
+    """one decoder layer that keeps (hidden, pos) tuple shape"""
+    def __init__(self, layer):
+        super().__init__()
+        self.layer = layer
+
+    def forward(self, hp):
+        hidden, pos = hp
+        hidden = self.layer(hidden, pos)                   # attn-mask defaults to None
+        return (hidden, pos)                               # keep tuple
+
+
+class GemmaNormWrapper(torch.nn.Module):
+    """final layer-norm drops position_embeddings"""
+    def __init__(self, norm):
+        super().__init__()
+        self.norm = norm
+
+    def forward(self, hp):
+        hidden, _ = hp
+        return self.norm(hidden)
 
 # ───────────────────────────────────────────────────────────────────────────────
 #  5. TRAINER CLASS (handles dataset slicing, dataloader, logging, checkpointing)
