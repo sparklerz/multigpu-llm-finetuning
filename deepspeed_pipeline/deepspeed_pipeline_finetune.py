@@ -14,8 +14,7 @@ from deepspeed.pipe import PipelineModule, LayerSpec
 from transformers import (
     AutoTokenizer,
     AutoConfig,
-    AutoModelForCausalLM,
-    DataCollatorForLanguageModeling
+    AutoModelForCausalLM
 )
 from datasets import load_dataset
 
@@ -254,18 +253,14 @@ class Trainer:
         for ep in range(self.epoch, self.epoch + num_epochs):
             self.epoch = ep
             self.dataloader.sampler.set_epoch(ep)
-            accum_counter = 0
 
-            for step, batch in enumerate(self.dataloader):
+            for batch in enumerate(self.dataloader):
                 # DeepSpeed pipeline expects the arguments exactly as your
                 # GemmaPipeModel.forward() signature, packed in a tuple / list.
-                micro = (
-                    batch["input_ids"].to(self.device),
-                    batch["attention_mask"].to(self.device),
-                    batch["labels"].to(self.device)
-                )
-                
-                loss = self.engine.train_batch(micro)   # handles fwd+back+opt step
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+
+                # DeepSpeed Pipeline expects an **iterator**, so wrap the one-off batch in a list and call iter()
+                loss = self.engine.train_batch(iter([batch]))
                 
                 if self.local_rank == 0:
                     wandb.log({"train_loss": loss.item(), "step": self.global_step})
@@ -274,13 +269,6 @@ class Trainer:
                 
                 if self.global_step >= self.max_steps:
                     break
-
-            # Finish any leftover gradients
-            if accum_counter > 0:
-                self.engine.step()
-                self.global_step += 1
-                if self.local_rank == 0:
-                    wandb.log({"train_loss": loss.item(), "step": self.global_step})
 
             # End of epoch: checkpoint + log wall-time
             epoch_time = time.time() - total_training_start
@@ -347,12 +335,10 @@ def main():
 
     # 5) DataLoader + DistributedSampler
     sampler = DistributedSampler(tok_ds, shuffle=True)
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     loader = DataLoader(
         tok_ds,
         batch_size=args.batch_size,
         sampler=sampler,
-        collate_fn=collator,
         pin_memory=True
     )
 
