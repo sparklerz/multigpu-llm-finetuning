@@ -123,26 +123,6 @@ class GemmaPipeModel(PipelineModule):
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
         self.config = hf_model.config
 
-    def forward(self, batch):
-        """
-        PipelineModule’s forward() automatically chops the input batch into micro-batches
-        and passes them through each stage. We just need to define how to compute loss from logits.
-        """
-        input_ids, labels = batch
-
-        # PipelineModule will run all “layers” in a sequence and the final output (call it logits)
-        # will be a tensor of shape (batch_size, seq_len, vocab_size). We compute loss vs labels.
-        logits = super().forward(input_ids)
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-
-        loss = F.cross_entropy(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.view(-1),
-            ignore_index=-100
-        )
-        return loss
-
 # ───────────────────────────────────────────────────────────────────────────────
 #  5. TRAINER CLASS (handles dataset slicing, dataloader, logging, checkpointing)
 # ───────────────────────────────────────────────────────────────────────────────
@@ -261,7 +241,7 @@ class Trainer:
 
                 micro = (batch["input_ids"], batch["labels"])
 
-                loss = self.engine.train_batch(iter([micro]))
+                loss = self.engine.train_batch(micro)
 
                 if self.local_rank == 0:
                     wandb.log({"train_loss": loss.item(), "step": self.global_step})
