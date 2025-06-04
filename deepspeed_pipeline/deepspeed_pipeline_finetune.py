@@ -241,7 +241,7 @@ class Trainer:
 
                 micro = (batch["input_ids"], batch["labels"])
 
-                loss = self.engine.train_batch(micro)
+                loss = self.engine.train_batch(iter([micro]))
 
                 if self.local_rank == 0:
                     wandb.log({"train_loss": loss.item(), "step": self.global_step})
