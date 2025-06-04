@@ -122,7 +122,7 @@ class GemmaPipeModel(PipelineModule):
 
         # Transformer Blocks
         for block in hf_model.model.layers:
-            layers.append(GemmaDecoderWrapper(block))
+            layers.append(GemmaDecoderWrapper(block, theta=getattr(hf_model.config, "rope_theta", 10000.0)))
 
         # Final layer norm
         layers.append(GemmaNormWrapper(hf_model.model.norm))
@@ -145,48 +145,44 @@ class GemmaPipeModel(PipelineModule):
         self.config = hf_model.config
 
 class GemmaInputStage(nn.Module):
+    """token embeddings → hidden_states"""
     def __init__(self, hf):
         super().__init__()
         self.embed_tokens = hf.model.embed_tokens
-        cfg = hf.config
-
-        # use the local helper defined above
-        self.head_dim   = cfg.hidden_size // cfg.num_attention_heads
-        self.base_theta = getattr(cfg, "rope_theta", 10000.0)
 
     def forward(self, input_ids):
-        hidden = self.embed_tokens(input_ids)              # [B, L, E]
-        seq_len = hidden.size(1)
+        return self.embed_tokens(input_ids)          # [B, L, E]
 
-        # Gemma 2’s helper returns tensors with shape [seq_len, head_dim]
-        cos, sin = build_rope_cache(
-            seq_len, self.head_dim,
-            device=hidden.device,
-            dtype=hidden.dtype,
-            theta=self.base_theta,
-        )
-        return (hidden, cos, sin)
 
 class GemmaDecoderWrapper(nn.Module):
-    """Keeps tuple (hidden, cos, sin) intact."""
-    def __init__(self, layer):
+    """Adds RoPE cache that exactly matches this layer’s head_dim."""
+    def __init__(self, layer, theta=10000.0):
         super().__init__()
         self.layer = layer
+        self.theta = theta
+        # grab static attributes once
+        self.head_dim = layer.self_attn.head_dim       # right size (256 here)
 
-    def forward(self, hcs):
-        hidden, cos, sin = hcs
-        hidden = self.layer(hidden, position_embeddings=(cos, sin))
-        return (hidden, cos, sin)
+    def forward(self, hidden):
+        seq_len = hidden.size(1)
+        cos, sin = build_rope_cache(
+            seq_len,
+            self.head_dim,
+            device=hidden.device,
+            dtype=hidden.dtype,
+            theta=self.theta,
+        )
+        return self.layer(hidden, position_embeddings=(cos, sin))
+        # still returns hidden_states
 
 
 class GemmaNormWrapper(nn.Module):
-    """Drops the RoPE cache after the final norm so `lm_head` sees plain hidden."""
+    """final layer-norm before lm_head"""
     def __init__(self, norm):
         super().__init__()
         self.norm = norm
 
-    def forward(self, hcs):
-        hidden, _, _ = hcs
+    def forward(self, hidden):
         return self.norm(hidden)
 
 # ───────────────────────────────────────────────────────────────────────────────
