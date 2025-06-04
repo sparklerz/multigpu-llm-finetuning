@@ -79,6 +79,26 @@ def ds_setup():
 #  4. BUILD A PIPELINED MODEL
 # ───────────────────────────────────────────────────────────────────────────────
 
+def build_rope_cache(seq_len: int,
+                     head_dim: int,
+                     device: torch.device,
+                     dtype: torch.dtype,
+                     theta: float = 10000.0):
+    """
+    Return (cos, sin) tensors with shape [seq_len, head_dim].
+
+    Equivalent to the helper that used to live in
+    `transformers.models.gemma2.modeling_gemma2`.
+    """
+    # half of head_dim because we interleave even/odd
+    inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2,
+                                             device=device,
+                                             dtype=dtype) / head_dim))
+    # [seq_len, head_dim // 2]
+    freqs = torch.outer(torch.arange(seq_len, device=device, dtype=dtype), inv_freq)
+    emb = torch.cat((freqs, freqs), dim=-1)               # [seq_len, head_dim]
+    return emb.cos(), emb.sin()
+
 class GemmaPipeModel(PipelineModule):
     """
     Wraps a Huggingface GemmaForCausalLM in a DeepSpeed PipelineModule.
@@ -125,18 +145,12 @@ class GemmaPipeModel(PipelineModule):
         self.config = hf_model.config
 
 class GemmaInputStage(nn.Module):
-    """
-    Token embeddings  →  (hidden, cos, sin) for downstream layers
-    """
     def __init__(self, hf):
         super().__init__()
         self.embed_tokens = hf.model.embed_tokens
         cfg = hf.config
 
-        # store rotary‐cache builder so we don’t re-import on every forward pass
-        from transformers.models.gemma2.modeling_gemma2 import build_rope_cache
-        self.rope_cache_fn = build_rope_cache
-
+        # use the local helper defined above
         self.head_dim   = cfg.hidden_size // cfg.num_attention_heads
         self.base_theta = getattr(cfg, "rope_theta", 10000.0)
 
@@ -145,12 +159,11 @@ class GemmaInputStage(nn.Module):
         seq_len = hidden.size(1)
 
         # Gemma 2’s helper returns tensors with shape [seq_len, head_dim]
-        cos, sin = self.rope_cache_fn(
-            seq_len,                                   # sequence length
-            hidden.device,                             # device
-            self.head_dim,
-            theta=self.base_theta,
+        cos, sin = build_rope_cache(
+            seq_len, self.head_dim,
+            device=hidden.device,
             dtype=hidden.dtype,
+            theta=self.base_theta,
         )
         return (hidden, cos, sin)
 
