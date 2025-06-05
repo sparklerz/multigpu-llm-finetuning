@@ -126,33 +126,24 @@ class GemmaPipeModel(PipelineModule):
 
 class GemmaInputStage(nn.Module):
     """
-    Token embeddings  →  (hidden, cos, sin) for downstream layers
+    Token embedding + one-time RoPE cache → (hidden, cos, sin)
+
+    Gemma’s rotary_emb is identical for every layer, so we can build the
+    cos/sin cache once on the first stage and forward it unchanged.
     """
     def __init__(self, hf):
         super().__init__()
         self.embed_tokens = hf.model.embed_tokens
-        cfg = hf.config
-
-        # store rotary‐cache builder so we don’t re-import on every forward pass
-        from transformers.models.gemma2.modeling_gemma2 import build_rope_cache
-        self.rope_cache_fn = build_rope_cache
-
-        self.head_dim   = cfg.hidden_size // cfg.num_attention_heads
-        self.base_theta = getattr(cfg, "rope_theta", 10000.0)
+        # grab the rotary object from the very first layer
+        self.rotary_emb   = hf.model.layers[0].self_attn.rotary_emb
 
     def forward(self, input_ids):
         hidden = self.embed_tokens(input_ids)              # [B, L, E]
         seq_len = hidden.size(1)
+        # transformers-style API: returns (cos, sin) tensors of shape [L, H]
+        cos, sin = self.rotary_emb.get_cos_sin(seq_len, hidden.device)
+        return (hidden, cos, sin)                          # tuple of THREE tensors
 
-        # Gemma 2’s helper returns tensors with shape [seq_len, head_dim]
-        cos, sin = self.rope_cache_fn(
-            seq_len,                                   # sequence length
-            hidden.device,                             # device
-            self.head_dim,
-            theta=self.base_theta,
-            dtype=hidden.dtype,
-        )
-        return (hidden, cos, sin)
 
 class GemmaDecoderWrapper(nn.Module):
     """Keeps tuple (hidden, cos, sin) intact."""
