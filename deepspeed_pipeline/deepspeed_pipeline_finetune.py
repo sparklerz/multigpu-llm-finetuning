@@ -26,7 +26,7 @@ from huggingface_hub import HfApi, hf_hub_download
 #  1. CONFIGURATION / HYPERPARAMETERS
 # ───────────────────────────────────────────────────────────────────────────────
 
-MODEL_NAME = "google/gemma-2-2b-it"
+MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"
 DATASET_NAME = "ash001/arxiv-abstract"
 TARGET_SEQ_LEN = 512  # max token length per example
 WARMUP_STEPS = 100
@@ -39,7 +39,7 @@ LEARNING_RATE = 1e-5
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(
-        description="DeepSpeed Pipeline Parallelism: Fine-tune Gemma with 2 GPUs + ZeRO1"
+        description="DeepSpeed Pipeline Parallelism: Fine-tune Llama with 2 GPUs + ZeRO1"
     )
     p.add_argument("--local_rank", type=int, default=0,
                    help="(DeepSpeed) Local rank, passed automatically")
@@ -56,7 +56,7 @@ def parse_args():
     p.add_argument("--initial_epoch", type=int, default=0,
                    help="Epoch number to resume from (overrides checkpoint epoch in resume_file)")
     p.add_argument("--hf_repo", type=str, required=True,
-                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-gemma-2b'")
+                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-llama-3b'")
     p.add_argument("--resume_file", type=str, default=None,
                    help="Checkpoint filename in the HF repo, e.g. 'checkpoint_epoch_1.pt'")
 
@@ -79,9 +79,9 @@ def ds_setup():
 #  4. BUILD A PIPELINED MODEL
 # ───────────────────────────────────────────────────────────────────────────────
 
-class GemmaPipeModel(PipelineModule):
+class LlamaPipeModel(PipelineModule):
     """
-    Wraps a Huggingface GemmaForCausalLM in a DeepSpeed PipelineModule.
+    Wraps a Huggingface LlamaForCausalLM in a DeepSpeed PipelineModule.
     Splits the Transformer layers evenly into `num_stages` pieces.
     The final forward() returns the loss.
     """
@@ -95,6 +95,12 @@ class GemmaPipeModel(PipelineModule):
         )
 
         # 2) Extract submodules in the correct order: embeddings → each block → final norm + lm_head
+        #    For LlamaForCausalLM, the structure is roughly:
+        #       hf_model.model.embed_tokens
+        #       hf_model.model.layers (ModuleList of Transformer Decoder blocks)
+        #       hf_model.model.norm
+        #       hf_model.lm_head
+        #
         #    We’ll break them out into a linear Python list of Layers.
         layers = []
         # Embedding
@@ -203,7 +209,7 @@ class Trainer:
 
         # For W&B: rank 0 initialises W&B; other ranks skip
         if self.local_rank == 0:
-            wandb.init(project="gemma2b-pipeline-finetune",
+            wandb.init(project="llama3b-pipeline-finetune",
                        name=f"slice_{start_idx}_{end_idx}",
                        config={
                            "model_name": MODEL_NAME,
@@ -258,7 +264,7 @@ class Trainer:
 
             for step, batch in enumerate(self.dataloader):
                 # DeepSpeed pipeline expects the arguments exactly as your
-                # GemmaPipeModel.forward() signature, packed in a tuple / list.
+                # LlamaPipeModel.forward() signature, packed in a tuple / list.
                 micro = (
                     batch["input_ids"].to(self.device),
                     batch["attention_mask"].to(self.device),
@@ -358,7 +364,7 @@ def main():
 
     # 6) Build pipelined model
     #    We pass num_stages=2 so that DeepSpeed splits our list of layers evenly across 2 GPUs.
-    pipeline_model = GemmaPipeModel(model_name=MODEL_NAME, num_stages=2)
+    pipeline_model = LlamaPipeModel(model_name=MODEL_NAME, num_stages=2)
 
     # 7) DeepSpeed config dict
     ds_config = {
