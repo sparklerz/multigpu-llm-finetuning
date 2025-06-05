@@ -254,16 +254,14 @@ class Trainer:
             self.epoch = ep
             self.dataloader.sampler.set_epoch(ep)
 
-            for step, batch in enumerate(self.dataloader):          # <- unpack enumerate
-                # move to this GPU
-                input_ids      = batch["input_ids"].to(self.device)
-                attention_mask = batch["attention_mask"].to(self.device)
-                labels         = batch["labels"].to(self.device)
+            for batch in enumerate(self.dataloader):
+                # DeepSpeed pipeline expects the arguments exactly as your
+                # GemmaPipeModel.forward() signature, packed in a tuple / list.
+                batch = {k: v.to(self.device) for k, v in batch.items()}
 
-                # DeepSpeed Pipeline wants an iterator that yields a tuple of args
-                micro = (input_ids, attention_mask, labels)
-                loss = self.engine.train_batch(iter([micro]))
-
+                # DeepSpeed Pipeline expects an **iterator**, so wrap the one-off batch in a list and call iter()
+                loss = self.engine.train_batch(iter([batch]))
+                
                 if self.local_rank == 0:
                     wandb.log({"train_loss": loss.item(), "step": self.global_step})
                 
