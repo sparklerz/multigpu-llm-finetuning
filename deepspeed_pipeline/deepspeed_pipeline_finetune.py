@@ -9,7 +9,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn import CrossEntropyLoss
 
 import deepspeed
-from deepspeed.pipe import PipelineModule, LayerSpec
+from deepspeed.pipe import PipelineModule
 
 from transformers import (
     AutoTokenizer,
@@ -200,6 +200,13 @@ class Trainer:
         self.epoch = initial_epoch
         self.global_step = 0
 
+        # batch-conversion fn so DeepSpeed can turn dict→tuple & move to GPU itself.
+        def batch_to_tuple(batch):
+            return ( batch["input_ids"].to(self.device),
+                     batch["attention_mask"].to(self.device),
+                     batch["labels"].to(self.device) )
+        self.engine.set_batch_fn(batch_to_tuple)
+
         # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
         if resume_file and self.local_rank == 0:
             try:
@@ -266,33 +273,20 @@ class Trainer:
         for ep in range(self.epoch, self.epoch + num_epochs):
             self.epoch = ep
             self.dataloader.sampler.set_epoch(ep)
-            accum_counter = 0
+            data_iter = iter(self.dataloader)
 
-            for step, batch in enumerate(self.dataloader):
-                # DeepSpeed pipeline expects the arguments exactly as your
-                # PhiPipeModel.forward() signature, packed in a tuple / list.
-                micro = (
-                    batch["input_ids"].to(self.device),
-                    batch["attention_mask"].to(self.device),
-                    batch["labels"].to(self.device)
-                )
-                
-                loss = self.engine.train_batch(micro)   # handles fwd+back+opt step
-                
-                if self.local_rank == 0:
-                    wandb.log({"train_loss": loss.item(), "step": self.global_step})
-                
-                self.global_step += 1
-                
-                if self.global_step >= self.max_steps:
+            while self.global_step < self.max_steps:
+                loss = self.engine.train_batch(data_iter=data_iter)
+                if loss is None:               # iterator exhausted
                     break
 
-            # Finish any leftover gradients
-            if accum_counter > 0:
-                self.engine.step()
-                self.global_step += 1
-                if self.local_rank == 0:
-                    wandb.log({"train_loss": loss.item(), "step": self.global_step})
+                if self.engine.is_gradient_accumulation_boundary():
+                    if self.local_rank == 0:
+                        wandb.log({"train_loss": loss.item(),
+                                   "step": self.global_step})
+                    self.global_step += 1
+                    if self.global_step >= self.max_steps:
+                        break
 
             # End of epoch: checkpoint + log wall-time
             epoch_time = time.time() - total_training_start
