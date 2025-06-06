@@ -91,7 +91,8 @@ class PhiPipeModel(PipelineModule):
             model_name,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
-            device_map=None
+            device_map=None,
+            trust_remote_code=True
         )
 
         # 2) Extract submodules in the correct order: embeddings → each block → final norm + lm_head
@@ -111,7 +112,12 @@ class PhiPipeModel(PipelineModule):
             layers.append(block)
 
         # Final layer norm
-        layers.append(hf_model.model.norm)
+        if hasattr(hf_model.model, "norm"):
+            layers.append(hf_model.model.norm)
+        elif hasattr(hf_model.model, "final_layernorm"):
+            layers.append(hf_model.model.final_layernorm)
+        else:
+            raise AttributeError("Could not find final layer-norm in the HF model")
 
         # LM head (tie weights with embedding in HF, but we can include it as a standalone module)
         layers.append(hf_model.lm_head)
