@@ -233,10 +233,16 @@ class Trainer:
             ids  = batch["input_ids"].to(self.device)
             lbls = batch["labels"].to(self.device)
             attn = batch["attention_mask"].to(self.device)
-            # build the Bloom alibi bias
             n_head = self.engine.module.config.n_head
             alibi  = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(self.device)
-            return ((ids, lbls, alibi, attn), lbls)
+
+            # Convert to a boolean padding-mask for Bloom: True where PAD-token
+            # Bloom expects a boolean mask (not long) for masked_fill.
+            pad_mask = ~attn.to(torch.bool)
+
+            # return ((hidden_kwargs...), labels)
+            # hidden_kwargs = (input_ids, labels, alibi, attention_mask_bool)
+            return ((ids, lbls, alibi, pad_mask), lbls)
         self.engine.set_batch_fn(batch_to_tuple)
 
         # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
