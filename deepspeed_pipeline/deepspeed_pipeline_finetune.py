@@ -27,7 +27,7 @@ from huggingface_hub import HfApi, hf_hub_download
 #  1. CONFIGURATION / HYPERPARAMETERS
 # ───────────────────────────────────────────────────────────────────────────────
 
-MODEL_NAME = "microsoft/phi-2"
+MODEL_NAME = "bigscience/bloomz-1b7"
 DATASET_NAME = "ash001/arxiv-abstract"
 TARGET_SEQ_LEN = 64  # max token length per example
 WARMUP_STEPS = 100
@@ -40,7 +40,7 @@ LEARNING_RATE = 1e-5
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(
-        description="DeepSpeed Pipeline Parallelism: Fine-tune Phi with 2 GPUs + ZeRO1"
+        description="DeepSpeed Pipeline Parallelism: Fine-tune Bloom with 2 GPUs + ZeRO1"
     )
     p.add_argument("--local_rank", type=int, default=0,
                    help="(DeepSpeed) Local rank, passed automatically")
@@ -57,7 +57,7 @@ def parse_args():
     p.add_argument("--initial_epoch", type=int, default=0,
                    help="Epoch number to resume from (overrides checkpoint epoch in resume_file)")
     p.add_argument("--hf_repo", type=str, required=True,
-                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-phi-2b'")
+                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-bloom-1.7b'")
     p.add_argument("--resume_file", type=str, default=None,
                    help="Checkpoint filename in the HF repo, e.g. 'checkpoint_epoch_1.pt'")
 
@@ -121,9 +121,9 @@ class LMHeadLossBlock(nn.Module):
 #  4. BUILD A PIPELINED MODEL
 # ───────────────────────────────────────────────────────────────────────────────
 
-class PhiPipeModel(PipelineModule):
+class BloomPipeModel(PipelineModule):
     """
-    Wraps a Huggingface PhiForCausalLM in a DeepSpeed PipelineModule.
+    Wraps a Huggingface BloomForCausalLM in a DeepSpeed PipelineModule.
     Splits the Transformer layers evenly into `num_stages` pieces.
     The final forward() returns the loss.
     """
@@ -138,7 +138,7 @@ class PhiPipeModel(PipelineModule):
         )
 
         # 2) Extract submodules in the correct order: embeddings → each block → final norm + lm_head
-        #    For PhiForCausalLM, the structure is roughly:
+        #    For BloomForCausalLM, the structure is roughly:
         #       hf_model.model.embed_tokens
         #       hf_model.model.layers (ModuleList of Transformer Decoder blocks)
         #       hf_model.model.norm
@@ -147,19 +147,13 @@ class PhiPipeModel(PipelineModule):
         #    We’ll break them out into a linear Python list of Layers.
         layers = []
         # Embedding
-        layers.append(EmbeddingBlock(hf_model.model.embed_tokens))
+        layers.append(EmbeddingBlock(hf_model.transformer.word_embeddings))
 
         # Transformer Blocks
         for block in hf_model.model.layers:
             layers.append(PassLabels(block))
 
-        # Final layer norm
-        if hasattr(hf_model.model, "norm"):
-            layers.append(PassLabels(hf_model.model.norm))
-        elif hasattr(hf_model.model, "final_layernorm"):
-            layers.append(PassLabels(hf_model.model.final_layernorm))
-        else:
-            raise AttributeError("Could not find final layer-norm in the HF model")
+        layers.append(PassLabels(hf_model.transformer.ln_f))
 
         # LM head (tie weights with embedding in HF, but we can include it as a standalone module)
         layers.append(LMHeadLossBlock(hf_model.lm_head))
@@ -242,7 +236,7 @@ class Trainer:
 
         # For W&B: rank 0 initialises W&B; other ranks skip
         if self.local_rank == 0:
-            wandb.init(project="phi2b-pipeline-finetune",
+            wandb.init(project="bloom-1.7b-pipeline-finetune",
                        name=f"slice_{start_idx}_{end_idx}",
                        config={
                            "model_name": MODEL_NAME,
@@ -353,7 +347,7 @@ def main():
         print(f"[Rank {local_rank}] Filtered & sliced dataset has {len(ds)} samples.")
 
     # 4) Tokeniser & tokenisation
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.model_max_length = TARGET_SEQ_LEN
@@ -383,7 +377,7 @@ def main():
 
     # 6) Build pipelined model
     #    We pass num_stages=2 so that DeepSpeed splits our list of layers evenly across 2 GPUs.
-    pipeline_model = PhiPipeModel(model_name=MODEL_NAME, num_stages=num_stages)
+    pipeline_model = BloomPipeModel(model_name=MODEL_NAME, num_stages=num_stages)
 
     # 7) DeepSpeed config dict
     ds_config = {
