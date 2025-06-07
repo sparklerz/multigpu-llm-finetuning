@@ -236,7 +236,7 @@ class Trainer:
             # build the Bloom alibi bias
             n_head = self.engine.module.config.n_head
             seq_len = attn.size(-1)
-            alibi = build_alibi_tensor(n_head, seq_len, device=self.device, dtype=ids.dtype)
+            alibi = build_alibi_tensor(n_head, seq_len, dtype=ids.dtype).to(self.device)
             return ((ids, lbls, alibi, attn), lbls)
         self.engine.set_batch_fn(batch_to_tuple)
 
