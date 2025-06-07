@@ -88,8 +88,13 @@ class PassLabels(nn.Module):
             hidden, labels = packed
             out = self.layer(hidden)
         else:
+            # every transformer block gives (hidden, labels, alibi, pad_mask)
             hidden, labels, alibi, attention_mask = packed
-            out = self.layer(hidden, alibi, attention_mask)
+            # final layer-norm only takes hidden
+            if isinstance(self.layer, nn.LayerNorm):
+                out = self.layer(hidden)
+            else:
+                out = self.layer(hidden, alibi, attention_mask)
         if isinstance(out, tuple):  # drop any extras (e.g. past_key_values)
             out = out[0]
         # carry everything forward
