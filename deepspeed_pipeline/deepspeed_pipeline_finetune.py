@@ -14,8 +14,7 @@ from deepspeed.pipe import PipelineModule
 from transformers import (
     AutoTokenizer,
     AutoConfig,
-    AutoModelForCausalLM,
-    DataCollatorForLanguageModeling
+    AutoModelForCausalLM
 )
 from datasets import load_dataset
 
@@ -135,24 +134,6 @@ class PhiPipeModel(PipelineModule):
 
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
         self.config = hf_model.config
-
-    def forward(self, input_ids, attention_mask, labels):
-        """
-        PipelineModule’s forward() automatically chops the input batch into micro-batches
-        and passes them through each stage. We just need to define how to compute loss from logits.
-        """
-        # PipelineModule will run all “layers” in a sequence and the final output (call it logits)
-        # will be a tensor of shape (batch_size, seq_len, vocab_size). We compute loss vs labels.
-        logits = super().forward(input_ids, attention_mask)
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-
-        loss = F.cross_entropy(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.view(-1),
-            ignore_index=-100
-        )
-        return loss
 
 # ───────────────────────────────────────────────────────────────────────────────
 #  5. TRAINER CLASS (handles dataset slicing, dataloader, logging, checkpointing)
@@ -353,12 +334,10 @@ def main():
 
     # 5) DataLoader + DistributedSampler
     sampler = DistributedSampler(tok_ds, shuffle=True)
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     loader = DataLoader(
         tok_ds,
         batch_size=args.batch_size,
         sampler=sampler,
-        collate_fn=collator,
         pin_memory=True
     )
 
