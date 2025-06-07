@@ -133,8 +133,7 @@ class BloomPipeModel(PipelineModule):
             model_name,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
-            device_map=None,
-            trust_remote_code=True
+            device_map=None
         )
 
         # 2) Extract submodules in the correct order: embeddings → each block → final norm + lm_head
@@ -150,7 +149,7 @@ class BloomPipeModel(PipelineModule):
         layers.append(EmbeddingBlock(hf_model.transformer.word_embeddings))
 
         # Transformer Blocks
-        for block in hf_model.model.layers:
+        for block in hf_model.transformer.h:
             layers.append(PassLabels(block))
 
         layers.append(PassLabels(hf_model.transformer.ln_f))
