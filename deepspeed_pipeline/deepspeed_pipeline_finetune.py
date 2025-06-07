@@ -116,16 +116,8 @@ class EmbeddingBlock(nn.Module):
         self.n_head = n_head
 
     def forward(self, *args):
-        # always expect a 4-tuple: (input_ids, labels, alibi, attention_mask)
-        packed = args
-        # flatten single-element containers
-        while isinstance(packed, (tuple, list)) and len(packed) == 1:
-            packed = packed[0]
-
-        if not (isinstance(packed, (tuple, list)) and len(packed) == 4):
-            raise ValueError(f"EmbeddingBlock expected 4 inputs, but got {packed!r}")
-
-        input_ids, labels, alibi, attention_mask = packed
+        # args must be (input_ids, labels, alibi, attention_mask)
+        input_ids, labels, alibi, attention_mask = args
         pad_mask = ~attention_mask.bool()
         hidden   = self.embed(input_ids)
         return (hidden, labels, alibi, pad_mask)
@@ -391,8 +383,7 @@ def main():
         attn = batch["attention_mask"].to(f"cuda:{local_rank}")
         n_head = pipeline_model.config.n_head
         alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
-        pad_mask = ~attn.to(torch.bool)
-        return (ids, lbls, alibi, pad_mask)
+        return (ids, lbls, alibi, attn)
 
     def tokenize_fn(ex):
         # We do causal LM: input_ids = tokenise(text); labels = same as input_ids
