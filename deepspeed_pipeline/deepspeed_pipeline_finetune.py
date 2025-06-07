@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128,garbage_collection_threshold:0.6"
 import time
 import torch
 import torch.nn.functional as F
@@ -394,9 +395,9 @@ def main():
         "zero_optimization": {
             "stage": 1,
             "allgather_partitions": True,
-            "allgather_bucket_size": 2e7,
-            "reduce_scatter": False,
-            "reduce_bucket_size": 2e7,
+            "allgather_bucket_size": 5e6,
+            "reduce_scatter": True,
+            "reduce_bucket_size": 5e6,
             "overlap_comm": False,
             "contiguous_gradients": False,
             "offload_optimizer": {
