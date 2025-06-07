@@ -116,25 +116,38 @@ class EmbeddingBlock(nn.Module):
         self.n_head = n_head
 
     def forward(self, *args):
-        if len(args) == 1 and isinstance(args[0], dict):
-            batch = args[0]
-            input_ids       = batch["input_ids"]
-            labels          = batch["labels"]
-            attention_mask  = batch["attention_mask"]
-            # rebuild alibi + pad_mask here
-            alibi    = build_alibi_tensor(attention_mask, self.n_head, dtype=input_ids.dtype)
-            pad_mask = ~attention_mask.bool()
-        else:
-            # case 2: we’ve got a nested tuple-of-4 from your collate_fn
-            packed = args
-            while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
-                packed = packed[0]
-            if len(packed) != 4:
-                raise ValueError(f"EmbeddingBlock expected 4 inputs, but got {len(packed)}")
-            input_ids, labels, alibi, attention_mask = packed
-            pad_mask = ~attention_mask.bool()
+        # 1) Unwrap any single‐element nesting
+        packed = args
+        while isinstance(packed, (tuple, list)) and len(packed) == 1:
+            packed = packed[0]
 
-        hidden = self.embed(input_ids)
+        # 2) Figure out what we got
+        if isinstance(packed, dict):
+            # raw HF dataset dict
+            input_ids      = packed["input_ids"]
+            labels         = packed["labels"]
+            attention_mask = packed["attention_mask"]
+            alibi = build_alibi_tensor(attention_mask, self.n_head, dtype=input_ids.dtype)
+
+        elif torch.is_tensor(packed):
+            # single Tensor → treat as input_ids only
+            input_ids      = packed
+            labels         = input_ids.clone()
+            attention_mask = (input_ids != self.embed.padding_idx).long()
+            alibi = build_alibi_tensor(attention_mask, self.n_head, dtype=input_ids.dtype)
+
+        elif isinstance(packed, (tuple, list)) and len(packed) == 4:
+            # the expected (ids, labels, alibi, mask)
+            input_ids, labels, alibi, attention_mask = packed
+
+        else:
+            # nothing else should happen
+            raise ValueError(f"EmbeddingBlock got unexpected input of type {type(packed)} "
+                             f"and length {len(packed) if isinstance(packed, (tuple,list)) else 'N/A'}")
+
+        # 3) Finalize pad mask + embed
+        pad_mask = ~attention_mask.bool()
+        hidden   = self.embed(input_ids)
         return (hidden, labels, alibi, pad_mask)
 
 class LMHeadLossBlock(nn.Module):
