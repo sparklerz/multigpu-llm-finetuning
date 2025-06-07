@@ -155,7 +155,7 @@ class LMHeadLossBlock(nn.Module):
             logits.view(-1, logits.size(-1)),
             labels.view(-1)
         )
-        return loss
+        return (loss,)
 
 # ───────────────────────────────────────────────────────────────────────────────
 #  4. BUILD A PIPELINED MODEL
