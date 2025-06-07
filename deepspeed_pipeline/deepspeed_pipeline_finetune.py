@@ -8,6 +8,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data._utils.collate import default_collate
 from torch.nn import CrossEntropyLoss
 
 import deepspeed
@@ -377,14 +378,15 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.model_max_length = TARGET_SEQ_LEN
 
-    def batch_to_tuple(batch):
-            ids   = batch["input_ids"].to(f"cuda:{local_rank}")
-            lbls  = batch["labels"].to(f"cuda:{local_rank}")
-            attn  = batch["attention_mask"].to(f"cuda:{local_rank}")
-            n_head = pipeline_model.config.n_head
-            alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
-            pad_mask = ~attn.to(torch.bool)
-            return (ids, lbls, alibi, pad_mask)
+    def batch_to_tuple(samples):
+        batch = default_collate(samples)
+        ids = batch["input_ids"].to(f"cuda:{local_rank}")
+        lbls = batch["labels"].to(f"cuda:{local_rank}")
+        attn = batch["attention_mask"].to(f"cuda:{local_rank}")
+        n_head = pipeline_model.config.n_head
+        alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
+        pad_mask = ~attn.to(torch.bool)
+        return (ids, lbls, alibi, pad_mask)
 
     def tokenize_fn(ex):
         # We do causal LM: input_ids = tokenise(text); labels = same as input_ids
