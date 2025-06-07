@@ -246,21 +246,6 @@ class Trainer:
         self.epoch = initial_epoch
         self.global_step = 0
 
-        # batch-conversion fn so DeepSpeed can turn dict→tuple & move to GPU itself.
-        def batch_to_tuple(batch):
-            ids  = batch["input_ids"].to(self.device)
-            lbls = batch["labels"].to(self.device)
-            attn = batch["attention_mask"].to(self.device)
-            n_head = self.engine.module.config.n_head
-            alibi  = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(self.device)
-
-            # Convert to a boolean padding-mask for Bloom: True where PAD-token
-            # Bloom expects a boolean mask (not long) for masked_fill.
-            pad_mask = ~attn.to(torch.bool)
-
-            return (ids, lbls, alibi, pad_mask)
-        self.engine.set_batch_fn(batch_to_tuple)
-
         # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
         if resume_file and self.local_rank == 0:
             try:
@@ -475,17 +460,26 @@ def main():
         }
     }
 
-    # 8) Initialize DeepSpeed engine
+    def batch_to_tuple(batch):
+            ids   = batch["input_ids"].to(f"cuda:{local_rank}")
+            lbls  = batch["labels"].to(f"cuda:{local_rank}")
+            attn  = batch["attention_mask"].to(f"cuda:{local_rank}")
+            n_head = pipeline_model.config.n_head
+            alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
+            pad_mask = ~attn.to(torch.bool)
+            return (ids, lbls, alibi, pad_mask)
+
     engine, _, _, _ = deepspeed.initialize(
         model=pipeline_model,
         config_params=ds_config,
-        model_parameters=[p for p in pipeline_model.parameters() if p.requires_grad]
+        model_parameters=[p for p in pipeline_model.parameters() if p.requires_grad],
+        batch_fn=batch_to_tuple
     )
 
     if local_rank == 0:
         print(f"[Rank {local_rank}] DeepSpeed engine initialised with world_size={world_size}.")
 
-    # 9) Load checkpoint if requested (DeepSpeed’s built-in load is called in Trainer)
+    # 9) Load checkpoint if requested
     trainer = Trainer(
         engine=engine,
         tokenizer=tokenizer,
