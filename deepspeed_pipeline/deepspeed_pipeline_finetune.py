@@ -29,7 +29,7 @@ from huggingface_hub import HfApi, hf_hub_download
 
 MODEL_NAME = "microsoft/phi-2"
 DATASET_NAME = "ash001/arxiv-abstract"
-TARGET_SEQ_LEN = 128  # max token length per example
+TARGET_SEQ_LEN = 64  # max token length per example
 WARMUP_STEPS = 100
 LEARNING_RATE = 1e-5
 
