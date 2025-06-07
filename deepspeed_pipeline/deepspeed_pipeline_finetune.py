@@ -396,7 +396,7 @@ def main():
             "stage": 1,
             "allgather_partitions": True,
             "allgather_bucket_size": 5e6,
-            "reduce_scatter": True,
+            "reduce_scatter": False,
             "reduce_bucket_size": 5e6,
             "overlap_comm": False,
             "contiguous_gradients": False,
