@@ -408,7 +408,7 @@ def main():
         tok_ds,
         batch_size=args.batch_size,
         sampler=sampler,
-        pin_memory=True,
+        pin_memory=False,
         collate_fn=batch_to_tuple
     )
 
