@@ -87,17 +87,19 @@ class PassLabels(nn.Module):
         packed = args
         if len(packed) == 1 and isinstance(packed[0], (tuple, list)):
             packed = packed[0]
-        elif len(packed) == 2:
+        if len(packed) == 2:
             hidden, labels = packed
             out = self.layer(hidden)
-        else:
+        elif len(packed) == 4:
             # every transformer block gives (hidden, labels, alibi, pad_mask)
             hidden, labels, alibi, attention_mask = packed
             # final layer-norm only takes hidden
             if isinstance(self.layer, nn.LayerNorm):
                 out = self.layer(hidden)
             else:
-                out = self.layer(hidden, alibi, attention_mask)
+                out = self.layer(hidden, attention_mask=attention_mask, alibi=alibi)
+        else:
+            raise ValueError(f"Unexpected number of elements in packed: {len(packed)}")
         if isinstance(out, tuple):  # drop any extras (e.g. past_key_values)
             out = out[0]
         # carry everything forward
@@ -129,15 +131,17 @@ class LMHeadLossBlock(nn.Module):
         packed = args
         if len(packed) == 1 and isinstance(packed[0], (tuple, list)):
             packed = packed[0]
-        elif len(packed) == 4:
+        if len(packed) == 4:
             hidden, labels, *_ = packed
-        else:
+        elif len(packed) == 2:
             hidden, labels = packed
+        else:
+            raise ValueError(f"Unexpected number of elements in packed: {len(packed)}")
 
-        logits = self.lm_head(hidden)           # (B, L, vocab)
-        if isinstance(logits, tuple):          # safety for tuple return
-            logits = logits[0]                 # (B, L, vocab)
-        # CE expects (B*L, V) vs (B*L,)
+        logits = self.lm_head(hidden)
+        if isinstance(logits, tuple):
+            logits = logits[0]
+        
         loss = self.loss_fn(
             logits.view(-1, logits.size(-1)),
             labels.view(-1)
