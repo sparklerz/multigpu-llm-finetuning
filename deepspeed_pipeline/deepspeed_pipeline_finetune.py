@@ -245,9 +245,7 @@ class Trainer:
             # Bloom expects a boolean mask (not long) for masked_fill.
             pad_mask = ~attn.to(torch.bool)
 
-            # return ((hidden_kwargs...), labels)
-            # hidden_kwargs = (input_ids, labels, alibi, attention_mask_bool)
-            return ((ids, lbls, alibi, pad_mask), lbls)
+            return (ids, lbls, alibi, pad_mask)
         self.engine.set_batch_fn(batch_to_tuple)
 
         # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
