@@ -1,6 +1,6 @@
 torch
 deepspeed
-transformers>=4.40
+transformers>=4.40,<5
 datasets
 wandb
 huggingface_hub
