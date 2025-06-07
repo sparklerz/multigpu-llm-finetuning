@@ -207,7 +207,7 @@ class Trainer:
                        name=f"slice_{start_idx}_{end_idx}",
                        config={
                            "model_name": MODEL_NAME,
-                           "num_stages": 2,
+                           "num_stages": dist.get_world_size(),
                            "zero_stage": 1,
                            "batch_size_per_gpu": bs_per_gpu,
                            "accum_steps": accum_steps,
@@ -297,6 +297,7 @@ class Trainer:
 def main():
     args = parse_args()
     local_rank, world_size = ds_setup()
+    num_stages = world_size
 
     # 1) Load & preprocess dataset slice
     if local_rank == 0:
@@ -343,7 +344,7 @@ def main():
 
     # 6) Build pipelined model
     #    We pass num_stages=2 so that DeepSpeed splits our list of layers evenly across 2 GPUs.
-    pipeline_model = PhiPipeModel(model_name=MODEL_NAME, num_stages=2)
+    pipeline_model = PhiPipeModel(model_name=MODEL_NAME, num_stages=num_stages)
 
     # 7) DeepSpeed config dict
     ds_config = {
