@@ -235,7 +235,7 @@ class Trainer:
             attn = batch["attention_mask"].to(self.device)
             # build the Bloom alibi bias
             n_head = self.engine.module.config.n_head
-            alibi  = build_alibi_tensor(attn, n_head, dtype=ids.dtype)
+            alibi  = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(self.device)
             return ((ids, lbls, alibi, attn), lbls)
         self.engine.set_batch_fn(batch_to_tuple)
 
