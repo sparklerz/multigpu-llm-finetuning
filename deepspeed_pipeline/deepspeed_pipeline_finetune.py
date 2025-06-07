@@ -401,6 +401,15 @@ def main():
         pin_memory=True
     )
 
+    def batch_to_tuple(batch):
+            ids   = batch["input_ids"].to(f"cuda:{local_rank}")
+            lbls  = batch["labels"].to(f"cuda:{local_rank}")
+            attn  = batch["attention_mask"].to(f"cuda:{local_rank}")
+            n_head = pipeline_model.config.n_head
+            alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
+            pad_mask = ~attn.to(torch.bool)
+            return (ids, lbls, alibi, pad_mask)
+
     # 6) Build pipelined model
     #    We pass num_stages=2 so that DeepSpeed splits our list of layers evenly across 2 GPUs.
     pipeline_model = BloomPipeModel(model_name=MODEL_NAME, num_stages=num_stages, batch_fn=batch_to_tuple)
@@ -460,15 +469,6 @@ def main():
             "checkpoint_in_training": True
         }
     }
-
-    def batch_to_tuple(batch):
-            ids   = batch["input_ids"].to(f"cuda:{local_rank}")
-            lbls  = batch["labels"].to(f"cuda:{local_rank}")
-            attn  = batch["attention_mask"].to(f"cuda:{local_rank}")
-            n_head = pipeline_model.config.n_head
-            alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
-            pad_mask = ~attn.to(torch.bool)
-            return (ids, lbls, alibi, pad_mask)
 
     engine, _, _, _ = deepspeed.initialize(
         model=pipeline_model,
