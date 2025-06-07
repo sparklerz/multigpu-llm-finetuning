@@ -473,7 +473,7 @@ def main():
         model=pipeline_model,
         config_params=ds_config,
         model_parameters=[p for p in pipeline_model.parameters() if p.requires_grad],
-        batch_fn=batch_to_tuple
+        train_batch_fn=batch_to_tuple
     )
 
     if local_rank == 0:
