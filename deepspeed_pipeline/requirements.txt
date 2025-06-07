@@ -6,3 +6,4 @@ wandb
 huggingface_hub
 tiktoken>=0.7.0
 sentencepiece>=0.2
+accelerate
