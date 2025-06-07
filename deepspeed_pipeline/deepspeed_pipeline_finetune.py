@@ -84,6 +84,8 @@ class PassLabels(nn.Module):
     def forward(self, packed):           # packed = (hidden, labels)
         hidden, labels = packed
         hidden = self.layer(hidden)
+        if isinstance(hidden, tuple):          # keep only hidden-states
+            hidden = hidden[0]
         return hidden, labels
 
 class EmbeddingBlock(nn.Module):
@@ -105,6 +107,8 @@ class LMHeadLossBlock(nn.Module):
     def forward(self, packed):                  # packed = (hidden, labels)
         hidden, labels = packed                 # hidden: (B, L, D)
         logits = self.lm_head(hidden)           # (B, L, vocab)
+        if isinstance(logits, tuple):          # safety for tuple return
+            logits = logits[0]                 # (B, L, vocab)
         # CE expects (B*L, V) vs (B*L,)
         loss = self.loss_fn(
             logits.view(-1, logits.size(-1)),
