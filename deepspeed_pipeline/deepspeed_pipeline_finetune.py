@@ -398,7 +398,10 @@ def main():
         world_size = dist.get_world_size()
         micro_batches = world_size * args.accum_steps
         # we simply duplicate the single sample to satisfy the scheduler
-        return tuple(mb for _ in range(micro_batches))
+        return tuple(
+            (ids.clone(), lbls.clone(), alibi.clone(), pad_mask.clone())
+            for _ in range(world_size * args.accum_steps)
+        )
 
     def tokenize_fn(ex):
         # We do causal LM: input_ids = tokenise(text); labels = same as input_ids
