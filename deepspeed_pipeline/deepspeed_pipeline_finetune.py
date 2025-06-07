@@ -392,7 +392,13 @@ def main():
         n_head = pipeline_model.config.n_head
         alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
         pad_mask = ~attn.to(torch.bool)
-        return ((ids, lbls, alibi, pad_mask),)
+        mb = (ids, lbls, alibi, pad_mask)
+        # For pipeline parallel with N GPUs and A accum steps,
+        # DeepSpeed needs N * A micro-batches here.
+        world_size = dist.get_world_size()
+        micro_batches = world_size * args.accum_steps
+        # we simply duplicate the single sample to satisfy the scheduler
+        return tuple(mb for _ in range(micro_batches))
 
     def tokenize_fn(ex):
         # We do causal LM: input_ids = tokenise(text); labels = same as input_ids
