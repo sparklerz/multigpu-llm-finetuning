@@ -4,6 +4,7 @@ import time
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn import CrossEntropyLoss
@@ -74,6 +75,43 @@ def ds_setup():
     torch.cuda.set_device(local_rank)
     return local_rank, world_size
 
+class PassLabels(nn.Module):
+    """Let a normal layer travel through the pipeline carrying labels with it."""
+    def __init__(self, layer):
+        super().__init__()
+        self.layer = layer
+
+    def forward(self, packed):           # packed = (hidden, labels)
+        hidden, labels = packed
+        hidden = self.layer(hidden)
+        return hidden, labels
+
+class EmbeddingBlock(nn.Module):
+    def __init__(self, embed_tokens):
+        super().__init__()
+        self.embed = embed_tokens               # HF embedding layer
+
+    def forward(self, packed):                  # packed = (input_ids, labels)
+        input_ids, labels = packed
+        hidden = self.embed(input_ids)          # (B, L, D)
+        return hidden, labels                   # keep labels with the tuple
+
+class LMHeadLossBlock(nn.Module):
+    def __init__(self, lm_head, ignore_index=-100):
+        super().__init__()
+        self.lm_head = lm_head
+        self.loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
+
+    def forward(self, packed):                  # packed = (hidden, labels)
+        hidden, labels = packed                 # hidden: (B, L, D)
+        logits = self.lm_head(hidden)           # (B, L, vocab)
+        # CE expects (B*L, V) vs (B*L,)
+        loss = self.loss_fn(
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1)
+        )
+        return loss
+
 # ───────────────────────────────────────────────────────────────────────────────
 #  4. BUILD A PIPELINED MODEL
 # ───────────────────────────────────────────────────────────────────────────────
@@ -104,30 +142,26 @@ class PhiPipeModel(PipelineModule):
         #    We’ll break them out into a linear Python list of Layers.
         layers = []
         # Embedding
-        layers.append(hf_model.model.embed_tokens)
+        layers.append(EmbeddingBlock(hf_model.model.embed_tokens))
 
         # Transformer Blocks
         for block in hf_model.model.layers:
-            layers.append(block)
+            layers.append(PassLabels(block))
 
         # Final layer norm
         if hasattr(hf_model.model, "norm"):
-            layers.append(hf_model.model.norm)
+            layers.append(PassLabels(hf_model.model.norm))
         elif hasattr(hf_model.model, "final_layernorm"):
-            layers.append(hf_model.model.final_layernorm)
+            layers.append(PassLabels(hf_model.model.final_layernorm))
         else:
             raise AttributeError("Could not find final layer-norm in the HF model")
 
         # LM head (tie weights with embedding in HF, but we can include it as a standalone module)
-        layers.append(hf_model.lm_head)
-
-        # 3) Define a simple CrossEntropyLoss for causal LM. PipelineModule will know to append this
-        loss_fn = CrossEntropyLoss(ignore_index=-100)
+        layers.append(LMHeadLossBlock(hf_model.lm_head))
 
         # 4) Call super() to let DeepSpeed partition these “layers” across `num_stages` GPUs.
         super().__init__(
             layers=layers,
-            loss_fn=loss_fn,
             num_stages=num_stages,
             partition_method="parameters"  # “parameters” shards each layer’s weights; alternatives exist
         )
