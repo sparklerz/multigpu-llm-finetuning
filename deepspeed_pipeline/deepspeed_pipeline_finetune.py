@@ -392,7 +392,7 @@ def main():
         n_head = pipeline_model.config.n_head
         alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
         pad_mask = ~attn.to(torch.bool)
-        return (ids, lbls, alibi, pad_mask)
+        return ((ids, lbls, alibi, pad_mask),)
 
     def tokenize_fn(ex):
         # We do causal LM: input_ids = tokenise(text); labels = same as input_ids
