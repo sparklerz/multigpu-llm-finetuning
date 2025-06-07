@@ -394,9 +394,9 @@ def main():
         "zero_optimization": {
             "stage": 1,
             "allgather_partitions": True,
-            "allgather_bucket_size": 5e7,
+            "allgather_bucket_size": 2e7,
             "reduce_scatter": False,
-            "reduce_bucket_size": 5e7,
+            "reduce_bucket_size": 2e7,
             "overlap_comm": False,
             "contiguous_gradients": False,
             "offload_optimizer": {
