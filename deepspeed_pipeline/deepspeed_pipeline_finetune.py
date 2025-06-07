@@ -85,7 +85,7 @@ class PassLabels(nn.Module):
 
     def forward(self, *args):
         packed = args
-        if len(packed) == 1 and isinstance(packed[0], (tuple, list)):
+        while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
             packed = packed[0]
         if len(packed) == 2:
             hidden, labels = packed
@@ -115,8 +115,10 @@ class EmbeddingBlock(nn.Module):
 
     def forward(self, *args):
         packed = args
-        if len(packed) == 1 and isinstance(packed[0], (tuple, list)):
+        while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
             packed = packed[0]
+        if len(packed) != 4:
+            raise ValueError(f"EmbeddingBlock expected 4 inputs, but got {len(packed)}")
         input_ids, labels, alibi, attention_mask = packed
         hidden = self.embed(input_ids)
         return (hidden, labels, alibi, attention_mask)
@@ -129,7 +131,7 @@ class LMHeadLossBlock(nn.Module):
 
     def forward(self, *args):
         packed = args
-        if len(packed) == 1 and isinstance(packed[0], (tuple, list)):
+        while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
             packed = packed[0]
         if len(packed) == 4:
             hidden, labels, *_ = packed
