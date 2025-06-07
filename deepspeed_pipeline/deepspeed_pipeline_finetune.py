@@ -400,7 +400,7 @@ def main():
         # we simply duplicate the single sample to satisfy the scheduler
         return tuple(
             (ids.clone(), lbls.clone(), alibi.clone(), pad_mask.clone())
-            for _ in range(world_size * args.accum_steps)
+            for _ in range(micro_batches)
         )
 
     def tokenize_fn(ex):
