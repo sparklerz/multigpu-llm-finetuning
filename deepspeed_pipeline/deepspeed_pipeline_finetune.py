@@ -184,7 +184,6 @@ class Trainer:
         # batch-conversion fn so DeepSpeed can turn dict→tuple & move to GPU itself.
         def batch_to_tuple(batch):
             return ( batch["input_ids"].to(self.device),
-                     batch["attention_mask"].to(self.device),
                      batch["labels"].to(self.device) )
         self.engine.set_batch_fn(batch_to_tuple)
 
@@ -359,7 +358,7 @@ def main():
             "allgather_bucket_size": 5e8,
             "reduce_scatter": True,
             "reduce_bucket_size": 5e8,
-            "overlap_comm": False,
+            "overlap_comm": True,
             "contiguous_gradients": True,
             "offload_optimizer": {
                 "device": "none"
