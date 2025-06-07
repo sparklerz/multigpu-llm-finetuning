@@ -160,7 +160,7 @@ class BloomPipeModel(PipelineModule):
     Splits the Transformer layers evenly into `num_stages` pieces.
     The final forward() returns the loss.
     """
-    def __init__(self, model_name: str, num_stages: int):
+    def __init__(self, model_name: str, num_stages: int, batch_fn=None):
         # 1) Load the HF model in CPU/GPU memory (we’ll let PipelineModule partition it later)
         hf_model = AutoModelForCausalLM.from_pretrained(
             model_name,
@@ -194,7 +194,8 @@ class BloomPipeModel(PipelineModule):
         super().__init__(
             layers=layers,
             num_stages=num_stages,
-            partition_method="parameters"  # “parameters” shards each layer’s weights; alternatives exist
+            partition_method="parameters",  # “parameters” shards each layer’s weights; alternatives exist
+            batch_fn=batch_fn
         )
 
         # We also store the tokenizer’s config for later use (particularly position embeddings / config)
@@ -402,7 +403,7 @@ def main():
 
     # 6) Build pipelined model
     #    We pass num_stages=2 so that DeepSpeed splits our list of layers evenly across 2 GPUs.
-    pipeline_model = BloomPipeModel(model_name=MODEL_NAME, num_stages=num_stages)
+    pipeline_model = BloomPipeModel(model_name=MODEL_NAME, num_stages=num_stages, batch_fn=batch_to_tuple)
 
     # 7) DeepSpeed config dict
     ds_config = {
@@ -472,8 +473,7 @@ def main():
     engine, _, _, _ = deepspeed.initialize(
         model=pipeline_model,
         config_params=ds_config,
-        model_parameters=[p for p in pipeline_model.parameters() if p.requires_grad],
-        train_batch_fn=batch_to_tuple
+        model_parameters=[p for p in pipeline_model.parameters() if p.requires_grad]
     )
 
     if local_rank == 0:
