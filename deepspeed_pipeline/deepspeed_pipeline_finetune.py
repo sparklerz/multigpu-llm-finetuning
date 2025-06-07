@@ -116,36 +116,16 @@ class EmbeddingBlock(nn.Module):
         self.n_head = n_head
 
     def forward(self, *args):
-        # 1) Unwrap any single‐element nesting
+        # always expect a 4-tuple: (input_ids, labels, alibi, attention_mask)
         packed = args
+        # flatten single-element containers
         while isinstance(packed, (tuple, list)) and len(packed) == 1:
             packed = packed[0]
 
-        # 2) Figure out what we got
-        if isinstance(packed, dict):
-            # raw HF dataset dict
-            input_ids      = packed["input_ids"]
-            labels         = packed["labels"]
-            attention_mask = packed["attention_mask"]
-            alibi = build_alibi_tensor(attention_mask, self.n_head, dtype=input_ids.dtype)
+        if not (isinstance(packed, (tuple, list)) and len(packed) == 4):
+            raise ValueError(f"EmbeddingBlock expected 4 inputs, but got {packed!r}")
 
-        elif torch.is_tensor(packed):
-            # single Tensor → treat as input_ids only
-            input_ids      = packed
-            labels         = input_ids.clone()
-            attention_mask = (input_ids != self.embed.padding_idx).long()
-            alibi = build_alibi_tensor(attention_mask, self.n_head, dtype=input_ids.dtype)
-
-        elif isinstance(packed, (tuple, list)) and len(packed) == 4:
-            # the expected (ids, labels, alibi, mask)
-            input_ids, labels, alibi, attention_mask = packed
-
-        else:
-            # nothing else should happen
-            raise ValueError(f"EmbeddingBlock got unexpected input of type {type(packed)} "
-                             f"and length {len(packed) if isinstance(packed, (tuple,list)) else 'N/A'}")
-
-        # 3) Finalize pad mask + embed
+        input_ids, labels, alibi, attention_mask = packed
         pad_mask = ~attention_mask.bool()
         hidden   = self.embed(input_ids)
         return (hidden, labels, alibi, pad_mask)
