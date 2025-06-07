@@ -218,7 +218,7 @@ class Trainer:
         # batch-conversion fn so DeepSpeed can turn dict→tuple & move to GPU itself.
         def batch_to_tuple(batch):
             return ( batch["input_ids"].to(self.device),
-                     batch["labels"].to(self.device) )
+                     batch["labels"].to(self.device) ),
         self.engine.set_batch_fn(batch_to_tuple)
 
         # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
