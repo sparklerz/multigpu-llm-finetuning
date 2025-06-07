@@ -12,6 +12,7 @@ from torch.nn import CrossEntropyLoss
 
 import deepspeed
 from deepspeed.pipe import PipelineModule
+from transformers.models.bloom.modeling_bloom import build_alibi_tensor
 
 from transformers import (
     AutoTokenizer,
@@ -82,22 +83,31 @@ class PassLabels(nn.Module):
         super().__init__()
         self.layer = layer
 
-    def forward(self, packed):           # packed = (hidden, labels)
-        hidden, labels = packed
-        hidden = self.layer(hidden)
-        if isinstance(hidden, tuple):          # keep only hidden-states
-            hidden = hidden[0]
-        return hidden, labels
+    def forward(self, packed):
+        if len(packed) == 2:
+            hidden, labels = packed
+            out = self.layer(hidden)
+        else:
+            hidden, labels, alibi, attention_mask = packed
+            out = self.layer(hidden, alibi, attention_mask)
+        if isinstance(out, tuple):  # drop any extras (e.g. past_key_values)
+            out = out[0]
+        # carry everything forward
+        if len(packed) == 2:
+            return (out, labels)
+        else:
+            return (out, labels, alibi, attention_mask)
 
 class EmbeddingBlock(nn.Module):
     def __init__(self, embed_tokens):
         super().__init__()
         self.embed = embed_tokens               # HF embedding layer
 
-    def forward(self, packed):                  # packed = (input_ids, labels)
-        input_ids, labels = packed
-        hidden = self.embed(input_ids)          # (B, L, D)
-        return hidden, labels                   # keep labels with the tuple
+    def forward(self, packed):
+        # now packed = (input_ids, labels, alibi, attention_mask)
+        input_ids, labels, alibi, attention_mask = packed
+        hidden = self.embed(input_ids)
+        return (hidden, labels, alibi, attention_mask)
 
 class LMHeadLossBlock(nn.Module):
     def __init__(self, lm_head, ignore_index=-100):
@@ -106,7 +116,12 @@ class LMHeadLossBlock(nn.Module):
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
     def forward(self, packed):                  # packed = (hidden, labels)
-        hidden, labels = packed                 # hidden: (B, L, D)
+        # accept either 2-tuple or 4-tuple
+        if len(packed) == 4:
+            hidden, labels, *_ = packed
+        else:
+            hidden, labels = packed
+
         logits = self.lm_head(hidden)           # (B, L, vocab)
         if isinstance(logits, tuple):          # safety for tuple return
             logits = logits[0]                 # (B, L, vocab)
@@ -217,7 +232,12 @@ class Trainer:
         def batch_to_tuple(batch):
             ids  = batch["input_ids"].to(self.device)
             lbls = batch["labels"].to(self.device)
-            return ((ids, lbls), lbls)
+            attn = batch["attention_mask"].to(self.device)
+            # build the Bloom alibi bias
+            n_head = self.engine.module.config.n_head
+            seq_len = attn.size(-1)
+            alibi = build_alibi_tensor(n_head, seq_len, device=self.device, dtype=ids.dtype)
+            return ((ids, lbls, alibi, attn), lbls)
         self.engine.set_batch_fn(batch_to_tuple)
 
         # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
