@@ -397,8 +397,8 @@ def main():
             "allgather_bucket_size": 2e7,
             "reduce_scatter": False,
             "reduce_bucket_size": 2e7,
-            "overlap_comm": True,
-            "contiguous_gradients": True,
+            "overlap_comm": False,
+            "contiguous_gradients": False,
             "offload_optimizer": {
                 "device": "none"
             }
