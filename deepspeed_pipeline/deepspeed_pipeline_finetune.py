@@ -83,7 +83,8 @@ class PassLabels(nn.Module):
         super().__init__()
         self.layer = layer
 
-    def forward(self, packed):
+    def forward(self, *args):
+        packed = args[0] if len(args) == 1 and isinstance(args[0], tuple) else args
         if len(packed) == 2:
             hidden, labels = packed
             out = self.layer(hidden)
@@ -108,8 +109,8 @@ class EmbeddingBlock(nn.Module):
         super().__init__()
         self.embed = embed_tokens               # HF embedding layer
 
-    def forward(self, packed):
-        # now packed = (input_ids, labels, alibi, attention_mask)
+    def forward(self, *args):
+        packed = args[0] if len(args) == 1 and isinstance(args[0], tuple) else args
         input_ids, labels, alibi, attention_mask = packed
         hidden = self.embed(input_ids)
         return (hidden, labels, alibi, attention_mask)
@@ -120,8 +121,8 @@ class LMHeadLossBlock(nn.Module):
         self.lm_head = lm_head
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
-    def forward(self, packed):                  # packed = (hidden, labels)
-        # accept either 2-tuple or 4-tuple
+    def forward(self, *args):
+        packed = args[0] if len(args) == 1 and isinstance(args[0], tuple) else args
         if len(packed) == 4:
             hidden, labels, *_ = packed
         else:
