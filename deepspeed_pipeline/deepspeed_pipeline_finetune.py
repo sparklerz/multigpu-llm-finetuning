@@ -395,10 +395,10 @@ def main():
             "stage": 1,
             "allgather_partitions": True,
             "allgather_bucket_size": 5e7,
-            "reduce_scatter": True,
+            "reduce_scatter": False,
             "reduce_bucket_size": 5e7,
             "overlap_comm": False,
-            "contiguous_gradients": True,
+            "contiguous_gradients": False,
             "offload_optimizer": {
                 "device": "none"
             }
