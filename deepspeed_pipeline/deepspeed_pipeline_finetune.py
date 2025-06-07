@@ -475,6 +475,12 @@ def main():
         "fp16": {
             "enabled": True,
             "loss_scale": 0
+        },
+        "activation_checkpointing": {
+            "partition_activations": True,          # each stage keeps only its slice
+            "contiguous_memory_optimization": True, # fewer cudaMallocs
+            "cpu_checkpointing": False,              # stay on-GPU, faster
+            "checkpoint_in_training": True
         }
     }
 
