@@ -110,19 +110,32 @@ class PassLabels(nn.Module):
             return (out, labels, alibi, attention_mask)
 
 class EmbeddingBlock(nn.Module):
-    def __init__(self, embed_tokens):
+    def __init__(self, embed_tokens, n_head):
         super().__init__()
         self.embed = embed_tokens               # HF embedding layer
+        self.n_head = n_head
 
     def forward(self, *args):
-        packed = args
-        while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
-            packed = packed[0]
-        if len(packed) != 4:
-            raise ValueError(f"EmbeddingBlock expected 4 inputs, but got {len(packed)}")
-        input_ids, labels, alibi, attention_mask = packed
+        if len(args) == 1 and isinstance(args[0], dict):
+            batch = args[0]
+            input_ids       = batch["input_ids"]
+            labels          = batch["labels"]
+            attention_mask  = batch["attention_mask"]
+            # rebuild alibi + pad_mask here
+            alibi    = build_alibi_tensor(attention_mask, self.n_head, dtype=input_ids.dtype)
+            pad_mask = ~attention_mask.bool()
+        else:
+            # case 2: we’ve got a nested tuple-of-4 from your collate_fn
+            packed = args
+            while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
+                packed = packed[0]
+            if len(packed) != 4:
+                raise ValueError(f"EmbeddingBlock expected 4 inputs, but got {len(packed)}")
+            input_ids, labels, alibi, attention_mask = packed
+            pad_mask = ~attention_mask.bool()
+
         hidden = self.embed(input_ids)
-        return (hidden, labels, alibi, attention_mask)
+        return (hidden, labels, alibi, pad_mask)
 
 class LMHeadLossBlock(nn.Module):
     def __init__(self, lm_head, ignore_index=-100):
@@ -180,7 +193,7 @@ class BloomPipeModel(PipelineModule):
         #    We’ll break them out into a linear Python list of Layers.
         layers = []
         # Embedding
-        layers.append(EmbeddingBlock(hf_model.transformer.word_embeddings))
+        layers.append(EmbeddingBlock(hf_model.transformer.word_embeddings, hf_model.config.n_head))
 
         # Transformer Blocks
         for block in hf_model.transformer.h:
