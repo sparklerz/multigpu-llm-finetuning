@@ -80,7 +80,7 @@ callbacks:
     save_folder: ./checkpoints              # where to write HF-format checkpoints
     save_interval: 1ep                      # every epoch
     huggingface_folder_name: ba{batch}      # sub-folder format
-    precision: bf16                         # or float32/float16
+    precision: float16
     overwrite: true
     mlflow_registered_model_name: null      # no MLflow registry
     mlflow_logging_config: null             # defaults only
