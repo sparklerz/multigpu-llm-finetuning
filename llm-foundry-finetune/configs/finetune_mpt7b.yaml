@@ -20,6 +20,7 @@ precision: bf16
 model:
   name: hf_causal_lm
   pretrained_model_name_or_path: mosaicml/mpt-7b
+  # keeps weights on CPU until ZeRO places them on GPUs
   init_device: meta
   tokenizer_name: mosaicml/mpt-7b
   config_overrides:
@@ -51,12 +52,12 @@ optimizer:
 
 # ---- FSDP sharding ----
 fsdp_config:
-  sharding_strategy: FULL_SHARD
-  mixed_precision: FULL
-  activation_checkpointing: true
-  limit_all_gathers: true
-  cpu_offload: false
-  verbose: true
+  sharding_strategy: FULL_SHARD        # shards model params, grads & opt-state
+  mixed_precision: FULL               # runs in bf16 everywhere
+  activation_checkpointing: true      # save memory by recomputing activations
+  limit_all_gathers: true             # reduce all-gather overhead
+  cpu_offload: false                  # keep shards on GPU (faster)
+  verbose: true                       # logs “Using FSDP FULL_SHARD”
 
 # ---- logging / callbacks ----
 loggers:
@@ -75,4 +76,4 @@ callbacks:
     create_pr: false
 
 eval_interval: 100ba
-save_interval: 0
+save_interval: 0          # disable checkpoints on Kaggle unless you need them
