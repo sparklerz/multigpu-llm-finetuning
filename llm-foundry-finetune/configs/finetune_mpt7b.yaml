@@ -6,10 +6,6 @@ seed: ${variables.global_seed}    # this is the recognized field
 variables:
   global_seed: 42
   grad_accum: 4
-  lr_scheduler:
-    name: cosine
-    t_max: 1000ba
-    eta_min: 1.0e-6
 
 device_train_microbatch_size: 1
 global_train_batch_size: 8
@@ -49,6 +45,11 @@ optimizer:
   lr: 1e-5
   betas: [0.9, 0.95]
   weight_decay: 0.05
+
+scheduler:
+  name: cosine
+  t_max: 1000ba
+  eta_min: 1.0e-6
 
 # ---- FSDP sharding ----
 fsdp_config:
