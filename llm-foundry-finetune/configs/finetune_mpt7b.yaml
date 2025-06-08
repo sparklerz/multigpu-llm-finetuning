@@ -24,7 +24,7 @@ model:
 
 # ---- tokenizer ----
 tokenizer:
-  name: hf_tokenizer
+  name: mosaicml/mpt-7b
   pretrained_model_name_or_path: mosaicml/mpt-7b
   init_device: cpu
 
