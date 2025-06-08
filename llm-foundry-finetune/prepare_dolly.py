@@ -24,10 +24,10 @@ ds = load_dataset(
 print(f"✅ Dataset loaded. Splits available: {list(ds.keys())}")
 
 # 4. Dump splits to JSONL
-for split in ("train", "test", "validation"):
-    print(f"✏️  Writing split '{split}' with {len(ds[split])} examples…")
+for split, subset in ds.items():
+    print(f"✏️  Writing split '{split}' with {len(subset)} examples…")
     with open(OUT_DIR / f"{split}.jsonl", "w", encoding="utf-8") as f:
-        for ex in ds[split]:
+        for ex in subset:
             f.write(
                 json.dumps({
                     "prompt":   ex["instruction"],
