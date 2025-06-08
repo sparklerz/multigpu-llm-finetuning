@@ -7,7 +7,6 @@ from datasets import load_dataset, DownloadConfig
 # 1. Increase HF Datasets download timeout & retries
 os.environ["HF_DATASETS_DOWNLOAD_INFO"] = "1"
 download_config = DownloadConfig(
-    dl_timeout=600,        # seconds to wait per request (default 100)
     max_retries=10      # retry up to 10 times
 )
 
