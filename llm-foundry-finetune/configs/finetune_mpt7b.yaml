@@ -1,0 +1,72 @@
+# ---- experiment identity ----
+run_name: mpt7b_dolly_sft
+global_seed: 42
+max_seq_len: 1024
+precision: bf16
+
+# ---- model ----
+model:
+  name: hf_causal_lm
+  pretrained_model_name_or_path: mosaicml/mpt-7b
+  # keeps weights on CPU until ZeRO places them on GPUs
+  init_device: meta
+  tokenizer_name: mosaicml/mpt-7b
+  config_overrides:
+    max_seq_len: 1024
+
+# ---- data ----
+train_loader:
+  name: jsonl_sft
+  jsonl_dir: data/dolly_15k_json
+  split: train
+  shuffle: true
+  batch_size: 1
+  num_workers: 2
+
+eval_loader:
+  name: jsonl_sft
+  jsonl_dir: data/dolly_15k_json
+  split: validation
+  batch_size: 1
+  num_workers: 2
+
+# ---- optimisation ----
+global_train_batch_size: 8          # = micro-batch(1)×grad_accum(8)×GPUs(2)
+grad_accum: 8
+max_duration: 2ep               # ~1k optimisation steps
+optim:
+  name: decoupled_adamw
+  lr: 1.0e-5
+  betas: [0.9, 0.95]
+  weight_decay: 0.05
+scheduler:
+  name: cosine
+  t_max: 1000ba
+  eta_min: 1.0e-6
+
+# ---- FSDP sharding ----
+fsdp_config:
+  sharding_strategy: FULL_SHARD        # shards model params, grads & opt-state
+  mixed_precision: FULL               # runs in bf16 everywhere
+  activation_checkpointing: true      # save memory by recomputing activations
+  limit_all_gathers: true             # reduce all-gather overhead
+  cpu_offload: false                  # keep shards on GPU (faster)
+  verbose: true                       # logs “Using FSDP FULL_SHARD”
+
+# ---- logging / callbacks ----
+loggers:
+  wandb:
+    project: llm-foundry-demo
+    entity: WANDB_USERNAME   # set WANDB_API_KEY in env
+callbacks:
+  speed_monitor: {}
+  lr_monitor: {}
+  huggingface_hub:
+    repo_id: ash001/llm-foundry-fsdp-mpt-7B
+    use_auth_token: true
+    commit_message: "fsdp fine-tuned mpt-7b"
+    save_strategy: epoch
+    push_to_hub: true
+    create_pr: false
+eval_interval: 100ba
+save_interval: 0          # disable checkpoints on Kaggle unless you need them
