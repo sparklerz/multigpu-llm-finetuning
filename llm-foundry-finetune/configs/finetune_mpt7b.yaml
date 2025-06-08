@@ -77,12 +77,14 @@ callbacks:
   speed_monitor: {}
   lr_monitor: {}
   hf_checkpointer:
-    repo_id: ash001/llm-foundry-fsdp-mpt-7B
-    use_auth_token: true
-    commit_message: "fsdp fine-tuned mpt-7b"
-    save_strategy: epoch
-    push_to_hub: true
-    create_pr: false
+    save_folder: ./checkpoints              # where to write HF-format checkpoints
+    save_interval: 1ep                      # every epoch
+    huggingface_folder_name: ba{batch}      # sub-folder format
+    precision: bf16                         # or float32/float16
+    overwrite: true
+    mlflow_registered_model_name: null      # no MLflow registry
+    mlflow_logging_config: null             # defaults only
+    flatten_imports: ["llmfoundry"]
 
 eval_interval: 100ba
 save_interval: 0          # disable checkpoints on Kaggle unless you need them
