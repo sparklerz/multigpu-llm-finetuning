@@ -22,6 +22,12 @@ model:
   config_overrides:
     max_seq_len: 1024
 
+# ---- tokenizer ----
+tokenizer:
+  name: hf_tokenizer
+  pretrained_tokenizer_name_or_path: mosaicml/mpt-7b
+  init_device: cpu
+
 # ---- data ----
 train_loader:
   name: jsonl_sft
