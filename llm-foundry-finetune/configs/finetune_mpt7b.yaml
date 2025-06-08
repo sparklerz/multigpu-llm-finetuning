@@ -53,7 +53,8 @@ optimizer:
   weight_decay: 0.05
 
 scheduler:
-  name: cosine
+  name: cosine_with_warmup
+  warmup_steps: 100
   t_max: 1000ba
   eta_min: 1.0e-6
 
