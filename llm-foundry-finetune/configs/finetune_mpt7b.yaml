@@ -1,12 +1,11 @@
 # ---- experiment identity ----
 run_name: mpt7b_dolly_sft
+global_seed: 42
+device_train_microbatch_size: 1
+grad_accum: 4
+global_train_batch_size: 8
 max_seq_len: 1024
 precision: bf16
-global_train_batch_size: 8
-variables:
-  seed: 42
-  device_train_microbatch_size: 1
-  grad_accum: 4
 
 # ---- model ----
 model:
@@ -24,14 +23,14 @@ train_loader:
   jsonl_dir: data/dolly_15k_json
   split: train
   shuffle: true
-  batch_size: ${variables.device_train_microbatch_size}
+  batch_size: ${device_train_microbatch_size}
   num_workers: 2
 
 eval_loader:
   name: jsonl_sft
   jsonl_dir: data/dolly_15k_json
   split: validation
-  batch_size: ${variables.device_train_microbatch_size}
+  batch_size: ${device_train_microbatch_size}
   num_workers: 2
 
 # ---- optimisation ----
