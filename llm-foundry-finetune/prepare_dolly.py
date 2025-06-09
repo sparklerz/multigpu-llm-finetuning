@@ -5,8 +5,9 @@ import pathlib
 from datasets import load_dataset
 
 # 1. Prepare output folder
-OUT_DIR = pathlib.Path("data/dolly_15k_txt")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+BASE_DIR = pathlib.Path("data/dolly_15k_txt")
+BASE_DIR.mkdir(parents=True, exist_ok=True)
+OUT_DIR = BASE_DIR
 
 # 2. Load the Dolly dataset (only 'train' exists)
 print("🔄 Loading Dolly-15K…")
@@ -40,8 +41,11 @@ def dump_jsonl(ds, name):
 
 # New: dump a simple .txt file, one line per example
 def dump_txt(ds, name):
+    # ensure split subfolder exists
+    split_dir = BASE_DIR / name
+    split_dir.mkdir(parents=True, exist_ok=True)
     print(f"✏️  Writing {name}.txt ({len(ds)} examples)…")
-    with open(OUT_DIR / f"{name}.txt", "w", encoding="utf-8") as f:
+    with open(split_dir / f"{name}.txt", "w", encoding="utf-8") as f:
         for ex in ds:
             # adjust separator to taste
             f.write(f"{ex['instruction']} [SEP] {ex['response']}\n")
@@ -58,4 +62,4 @@ if __name__ == "__main__":
     dump_txt(val_ds,   "validation")
     dump_txt(test_ds,  "test")
 
-print(f"🎉 All splits dumped to {OUT_DIR}")
+print(f"🎉 All splits dumped to {BASE_DIR}")

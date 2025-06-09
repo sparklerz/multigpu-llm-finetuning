@@ -31,18 +31,34 @@ tokenizer:
 # ---- data ----
 train_loader:
   name: text
-  text_dir: data/dolly_15k_txt
-  split: train
-  shuffle: true
-  batch_size: ${device_train_microbatch_size}
+  # <-- new: put all your text-dataset settings under `dataset`
+  dataset:
+    local: data/dolly_15k_txt     # top-level folder
+    remote: null                   # we’re not streaming from elsewhere
+    split: train                   # will read from data/dolly_15k_txt/train/
+    shuffle: true
+    max_seq_len: 1024              # so StreamingTextDataset knows how to truncate
+  drop_last: false
   num_workers: 2
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: true
+  timeout: 0
 
 eval_loader:
   name: text
-  text_dir: data/dolly_15k_txt
-  split: validation
-  batch_size: ${device_train_microbatch_size}
+  dataset:
+    local: data/dolly_15k_txt
+    remote: null
+    split: validation
+    shuffle: false
+    max_seq_len: 1024
+  drop_last: false
   num_workers: 2
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: true
+  timeout: 0
 
 # ---- optimisation ----
 max_duration: 2ep
