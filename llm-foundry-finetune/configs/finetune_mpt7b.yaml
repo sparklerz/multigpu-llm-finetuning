@@ -38,6 +38,7 @@ train_loader:
     prompt_col: prompt
     response_col: response
     decoder_only_format: true
+    max_seq_len: 1024
   device_batch_size: 1
   num_workers: 2
   pin_memory: true
@@ -54,6 +55,7 @@ eval_loader:
     prompt_col: prompt
     response_col: response
     decoder_only_format: true
+    max_seq_len: 1024
   device_batch_size: 1
   num_workers: 2
   pin_memory: true
