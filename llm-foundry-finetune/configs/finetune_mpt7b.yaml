@@ -30,16 +30,16 @@ tokenizer:
 
 # ---- data ----
 train_loader:
-  name: jsonl_sft
-  jsonl_dir: data/dolly_15k_json
+  name: text
+  text_dir: data/dolly_15k_txt
   split: train
   shuffle: true
   batch_size: ${device_train_microbatch_size}
   num_workers: 2
 
 eval_loader:
-  name: jsonl_sft
-  jsonl_dir: data/dolly_15k_json
+  name: text
+  text_dir: data/dolly_15k_txt
   split: validation
   batch_size: ${device_train_microbatch_size}
   num_workers: 2

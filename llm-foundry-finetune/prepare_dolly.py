@@ -5,7 +5,7 @@ import pathlib
 from datasets import load_dataset
 
 # 1. Prepare output folder
-OUT_DIR = pathlib.Path("data/dolly_15k_json")
+OUT_DIR = pathlib.Path("data/dolly_15k_txt")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 2. Load the Dolly dataset (only 'train' exists)
@@ -25,8 +25,8 @@ val_ds  = split2["train"]
 test_ds = split2["test"]
 
 # 5. A helper to dump a Dataset to JSONL
-def dump(ds, name):
-    print(f"✏️  Writing {name} ({len(ds)} examples)…")
+def dump_jsonl(ds, name):
+    print(f"✏️  Writing {name}.jsonl ({len(ds)} examples)…")
     with open(OUT_DIR / f"{name}.jsonl", "w", encoding="utf-8") as f:
         for ex in ds:
             f.write(
@@ -36,11 +36,26 @@ def dump(ds, name):
                 }, ensure_ascii=False)
                 + "\n"
             )
-    print(f"   ✓ Finished {name}")
+    print(f"   ✓ Finished {name}.jsonl")
 
-# 6. Dump each split
-dump(train_ds, "train")
-dump(val_ds,   "validation")
-dump(test_ds,  "test")
+# New: dump a simple .txt file, one line per example
+def dump_txt(ds, name):
+    print(f"✏️  Writing {name}.txt ({len(ds)} examples)…")
+    with open(OUT_DIR / f"{name}.txt", "w", encoding="utf-8") as f:
+        for ex in ds:
+            # adjust separator to taste
+            f.write(f"{ex['instruction']} [SEP] {ex['response']}\n")
+    print(f"   ✓ Finished {name}.txt")
+
+if __name__ == "__main__":
+    # JSONL still available if you need it:
+    dump_jsonl(train_ds, "train")
+    dump_jsonl(val_ds,   "validation")
+    dump_jsonl(test_ds,  "test")
+
+    # Plain-text for the `text` loader:
+    dump_txt(train_ds, "train")
+    dump_txt(val_ds,   "validation")
+    dump_txt(test_ds,  "test")
 
 print(f"🎉 All splits dumped to {OUT_DIR}")
