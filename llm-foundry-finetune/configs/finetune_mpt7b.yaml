@@ -33,9 +33,10 @@ train_loader:
   name: finetuning
   dataset:
     dataset_name: databricks/databricks-dolly-15k
-    split: train
+    split: train[:90%]
     prompt_column: instruction
     response_column: response
+    decoder_only_format: true
     shuffle: true
     max_seq_len: 1024
   drop_last: false
@@ -50,9 +51,10 @@ eval_loader:
   name: finetuning
   dataset:
     dataset_name: databricks/databricks-dolly-15k
-    split: validation
+    split: train[90%:]
     prompt_column: instruction
     response_column: response
+    decoder_only_format: true
     shuffle: false
     max_seq_len: 1024
   drop_last: false
