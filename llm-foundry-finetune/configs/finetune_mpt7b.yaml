@@ -30,15 +30,19 @@ tokenizer:
 
 # ---- data ----
 train_loader:
-  name: text
-  # <-- new: put all your text-dataset settings under `dataset`
+  name: hf                   # use Hugging Face loader
   dataset:
-    local: data/dolly_15k_txt     # top-level folder
-    remote: null                   # we’re not streaming from elsewhere
-    split: train                   # will read from data/dolly_15k_txt/train/
+    name: text               # load raw text lines
+    data_files:
+      train:      data/dolly_15k_txt/train/train.txt
+      validation: data/dolly_15k_txt/validation/validation.txt
+      test:       data/dolly_15k_txt/test/test.txt
+    split: train
+    text_column: text        # the default column name
     shuffle: true
-    max_seq_len: 1024              # so StreamingTextDataset knows how to truncate
+    max_seq_len: 1024
   drop_last: false
+  batch_size: 1              # matches device_train_microbatch_size
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
@@ -46,14 +50,19 @@ train_loader:
   timeout: 0
 
 eval_loader:
-  name: text
+  name: hf
   dataset:
-    local: data/dolly_15k_txt
-    remote: null
+    name: text
+    data_files:
+      train:      data/dolly_15k_txt/train/train.txt
+      validation: data/dolly_15k_txt/validation/validation.txt
+      test:       data/dolly_15k_txt/test/test.txt
     split: validation
+    text_column: text
     shuffle: false
     max_seq_len: 1024
   drop_last: false
+  batch_size: 1
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
