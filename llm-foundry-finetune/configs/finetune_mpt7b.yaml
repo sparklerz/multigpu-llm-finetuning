@@ -30,19 +30,16 @@ tokenizer:
 
 # ---- data ----
 train_loader:
-  name: hf                   # use Hugging Face loader
+  name: finetuning
   dataset:
-    name: text               # load raw text lines
-    data_files:
-      train:      data/dolly_15k_txt/train/train.txt
-      validation: data/dolly_15k_txt/validation/validation.txt
-      test:       data/dolly_15k_txt/test/test.txt
+    dataset_name: databricks/databricks-dolly-15k
     split: train
-    text_column: text        # the default column name
+    prompt_column: instruction
+    response_column: response
     shuffle: true
     max_seq_len: 1024
   drop_last: false
-  batch_size: 1              # matches device_train_microbatch_size
+  device_batch_size: 1
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
@@ -50,19 +47,16 @@ train_loader:
   timeout: 0
 
 eval_loader:
-  name: hf
+  name: finetuning
   dataset:
-    name: text
-    data_files:
-      train:      data/dolly_15k_txt/train/train.txt
-      validation: data/dolly_15k_txt/validation/validation.txt
-      test:       data/dolly_15k_txt/test/test.txt
+    dataset_name: databricks/databricks-dolly-15k
     split: validation
-    text_column: text
+    prompt_column: instruction
+    response_column: response
     shuffle: false
     max_seq_len: 1024
   drop_last: false
-  batch_size: 1
+  device_batch_size: 1
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
