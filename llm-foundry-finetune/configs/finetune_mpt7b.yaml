@@ -32,12 +32,14 @@ tokenizer:
 train_loader:
   name: finetuning
   dataset:
-    name: python                # use the “python” (JSONL) loader
-    input_path: data/dolly_train.jsonl
-    split: "*"                  # use all lines
-    prompt_col: prompt
+    hf_name: databricks/databricks-dolly-15k
+    split: train[:90%]
+    prompt_col: instruction
     response_col: response
     decoder_only_format: true
+    shuffle: true
+    max_seq_len: 1024
+  drop_last: false
   device_batch_size: 1
   num_workers: 2
   pin_memory: true
@@ -48,12 +50,14 @@ train_loader:
 eval_loader:
   name: finetuning
   dataset:
-    name: python
-    input_path: data/dolly_valid.jsonl
-    split: "*"
-    prompt_col: prompt
+    hf_name: databricks/databricks-dolly-15k
+    split: train[90%:]
+    prompt_col: instruction
     response_col: response
     decoder_only_format: true
+    shuffle: false
+    max_seq_len: 1024
+  drop_last: false
   device_batch_size: 1
   num_workers: 2
   pin_memory: true
