@@ -32,8 +32,10 @@ tokenizer:
 train_loader:
   name: finetuning
   dataset:
-    name: jsonl                 # load local JSONL
-    input_path: data/dolly_15k_txt/train.jsonl
+    # Use the built-in JSON dataset reader from HuggingFace
+    hf_name: json
+    hf_split: train
+    data_files: data/dolly_15k_txt/train.jsonl
     decoder_only_format: true
     shuffle: true
     max_seq_len: 1024
@@ -48,8 +50,9 @@ train_loader:
 eval_loader:
   name: finetuning
   dataset:
-    name: jsonl
-    input_path: data/dolly_15k_txt/validation.jsonl
+    hf_name: json
+    hf_split: validation
+    data_files: data/dolly_15k_txt/validation.jsonl
     decoder_only_format: true
     shuffle: false
     max_seq_len: 1024
