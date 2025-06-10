@@ -19,7 +19,7 @@ model:
   init_device: meta
   trust_remote_code: true
   config_overrides:
-    max_seq_len: 1024
+  max_seq_len: 1024
 
 # ---- tokenizer ----
 tokenizer:
