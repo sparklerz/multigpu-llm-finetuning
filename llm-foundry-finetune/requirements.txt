@@ -1,3 +1,4 @@
-llm-foundry==0.6.0
+mosaicml-llm-foundry<0.18
+mosaicml-composer==0.14.2
+mosaicml-streaming>=0.12
 wandb>=0.16
-mosaicml-streaming
