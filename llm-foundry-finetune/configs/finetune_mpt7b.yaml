@@ -93,7 +93,7 @@ fsdp_config:
 loggers:
   wandb:
     project: llm-foundry-demo
-    entity: WANDB_USERNAME
+    entity: kannansarat9
 callbacks:
   speed_monitor: {}
   lr_monitor: {}
