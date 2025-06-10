@@ -10,18 +10,18 @@ variables:
 device_train_microbatch_size: 1
 global_train_batch_size: 8
 precision: amp_fp16
-max_seq_len: 512
+max_seq_len: 1024
 
 # ---- model ----
 model:
   name: hf_causal_lm
-  pretrained_model_name_or_path: bigscience/bloom-3b
+  pretrained_model_name_or_path: bigscience/bloomz-1b7
   trust_remote_code: true
 
 # ---- tokenizer ----
 tokenizer:
-  name: bigscience/bloom-3b
-  pretrained_model_name_or_path: bigscience/bloom-3b
+  name: bigscience/bloomz-1b7
+  pretrained_model_name_or_path: bigscience/bloomz-1b7
   init_device: cpu
 
 # ---- data ----
@@ -37,7 +37,7 @@ train_loader:
         train: data/dolly_15k_txt/train.jsonl
     decoder_only_format: false
     shuffle: true
-    max_seq_len: 512
+    max_seq_len: 1024
   drop_last: false
   device_batch_size: 1
   num_workers: 2
@@ -56,7 +56,7 @@ eval_loader:
         validation: data/dolly_15k_txt/validation.jsonl
     decoder_only_format: false
     shuffle: false
-    max_seq_len: 512
+    max_seq_len: 1024
   drop_last: false
   device_batch_size: 1
   num_workers: 2
