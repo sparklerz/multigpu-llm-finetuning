@@ -86,7 +86,7 @@ fsdp_config:
   mixed_precision: DEFAULT
   activation_checkpointing: true      # save memory by recomputing activations
   limit_all_gathers: true             # reduce all-gather overhead
-  cpu_offload: false                  # keep shards on GPU (faster)
+  cpu_offload: true
   verbose: true                       # logs “Using FSDP FULL_SHARD”
 
 # ---- logging / callbacks ----
