@@ -1,4 +1,4 @@
-llm-foundry==0.6.0
+llm-foundry
 wandb>=0.16
 mosaicml-streaming
 bitsandbytes>=0.43.0
