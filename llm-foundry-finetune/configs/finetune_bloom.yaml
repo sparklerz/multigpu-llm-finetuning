@@ -10,7 +10,7 @@ variables:
 device_train_microbatch_size: 1
 global_train_batch_size: 8
 precision: amp_fp16
-max_seq_len: 1024
+max_seq_len: 512
 
 # ---- model ----
 model:
@@ -37,7 +37,7 @@ train_loader:
         train: data/dolly_15k_txt/train.jsonl
     decoder_only_format: false
     shuffle: true
-    max_seq_len: 1024
+    max_seq_len: 512
   drop_last: false
   device_batch_size: 1
   num_workers: 2
@@ -56,7 +56,7 @@ eval_loader:
         validation: data/dolly_15k_txt/validation.jsonl
     decoder_only_format: false
     shuffle: false
-    max_seq_len: 1024
+    max_seq_len: 512
   drop_last: false
   device_batch_size: 1
   num_workers: 2
@@ -86,7 +86,7 @@ fsdp_config:
   mixed_precision: DEFAULT
   activation_checkpointing: true      # save memory by recomputing activations
   limit_all_gathers: true             # reduce all-gather overhead
-  cpu_offload: true
+  cpu_offload: false
   verbose: true                       # logs “Using FSDP FULL_SHARD”
 
 # ---- logging / callbacks ----
