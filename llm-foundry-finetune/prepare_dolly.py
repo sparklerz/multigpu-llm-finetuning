@@ -7,11 +7,28 @@ from datasets import load_dataset
 # 1. Prepare output folder
 # Always place the dataset at the repository root so that it matches the
 # paths expected by the training config regardless of the current working
-# directory when this script is executed.
+# directory when this script is executed.  Additionally create a symlink
+# from ``llm-foundry-finetune/data`` to the repository root so that older
+# configs that expect the data relative to ``llm-foundry-finetune`` also
+# work.
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE_DIR = REPO_ROOT / "data" / "dolly_15k_txt"
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 OUT_DIR = BASE_DIR
+
+# Backwards compatibility: ``finetune_mpt7b.yaml`` previously looked for the
+# dataset under ``llm-foundry-finetune/data``.  Create a symlink so both paths
+# resolve to the same directory.
+ALT_DIR = pathlib.Path(__file__).parent / "data" / "dolly_15k_txt"
+if ALT_DIR != BASE_DIR:
+    ALT_DIR.parent.mkdir(parents=True, exist_ok=True)
+    if not ALT_DIR.exists():
+        try:
+            ALT_DIR.symlink_to(BASE_DIR, target_is_directory=True)
+        except OSError:
+            # Fall back to copying if symlinks are not supported
+            import shutil
+            shutil.copytree(BASE_DIR, ALT_DIR)
 
 # 2. Load the Dolly dataset (only 'train' exists)
 print("🔄 Loading Dolly-15K…")
