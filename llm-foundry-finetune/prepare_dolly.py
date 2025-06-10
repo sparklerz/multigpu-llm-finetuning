@@ -27,28 +27,52 @@ test_ds = split2["test"]
 
 # 5. A helper to dump a Dataset to JSONL
 def dump_jsonl(ds, name):
+    """Dump the dataset split to JSONL files.
+
+    Files are written both at the dataset root (``{name}.jsonl``) and inside a
+    split subfolder (``{name}/{name}.jsonl``).  Having the files in a subfolder
+    mirrors the layout expected by some training configs and avoids confusing
+    errors when loading the dataset with Hugging Face ``load_dataset``.
+    """
+
+    examples = [
+        json.dumps({
+            "prompt": ex["instruction"],
+            "response": ex["response"],
+        }, ensure_ascii=False) + "\n" for ex in ds
+    ]
+
+    # Root-level file (backwards compatibility)
     print(f"✏️  Writing {name}.jsonl ({len(ds)} examples)…")
     with open(OUT_DIR / f"{name}.jsonl", "w", encoding="utf-8") as f:
-        for ex in ds:
-            f.write(
-                json.dumps({
-                    "prompt":   ex["instruction"],
-                    "response": ex["response"],
-                }, ensure_ascii=False)
-                + "\n"
-            )
+        f.writelines(examples)
+
+    # Split subfolder file (preferred by HF loader)
+    split_dir = BASE_DIR / name
+    split_dir.mkdir(parents=True, exist_ok=True)
+    with open(split_dir / f"{name}.jsonl", "w", encoding="utf-8") as f:
+        f.writelines(examples)
+
     print(f"   ✓ Finished {name}.jsonl")
 
 # New: dump a simple .txt file, one line per example
 def dump_txt(ds, name):
-    # ensure split subfolder exists
+    """Dump a plain-text version of the dataset split.
+
+    The text files are written inside a ``{name}`` subdirectory so that Hugging
+    Face's ``text`` loader can discover them using ``data_files={'train':
+    'path/train.txt'}``.
+    """
+
+    lines = [f"{ex['instruction']} [SEP] {ex['response']}\n" for ex in ds]
+
     split_dir = BASE_DIR / name
     split_dir.mkdir(parents=True, exist_ok=True)
+
     print(f"✏️  Writing {name}.txt ({len(ds)} examples)…")
     with open(split_dir / f"{name}.txt", "w", encoding="utf-8") as f:
-        for ex in ds:
-            # adjust separator to taste
-            f.write(f"{ex['instruction']} [SEP] {ex['response']}\n")
+        f.writelines(lines)
+
     print(f"   ✓ Finished {name}.txt")
 
 if __name__ == "__main__":
