@@ -15,13 +15,13 @@ max_seq_len: 1024
 # ---- model ----
 model:
   name: hf_causal_lm
-  pretrained_model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
+  pretrained_model_name_or_path: bigscience/bloom-7b1
   trust_remote_code: true
 
 # ---- tokenizer ----
 tokenizer:
-  name: mistralai/Mistral-7B-Instruct-v0.2
-  pretrained_model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
+  name: bigscience/bloom-7b1
+  pretrained_model_name_or_path: bigscience/bloom-7b1
   init_device: cpu
 
 # ---- data ----
