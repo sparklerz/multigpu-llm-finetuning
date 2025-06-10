@@ -30,20 +30,6 @@ if ALT_DIR != BASE_DIR:
             import shutil
             shutil.copytree(BASE_DIR, ALT_DIR)
 
-# Additional symlink so running training scripts from the installed
-# `llmfoundry.scripts.train` directory can still resolve the dataset via
-# the relative path ``data/dolly_15k_txt``.
-TRAIN_SCRIPT_DIR = pathlib.Path(__file__).parent / "llm-foundry" / "scripts" / "train"
-ALT_TRAIN_DIR = TRAIN_SCRIPT_DIR / "data" / "dolly_15k_txt"
-if ALT_TRAIN_DIR != BASE_DIR:
-    ALT_TRAIN_DIR.parent.mkdir(parents=True, exist_ok=True)
-    if not ALT_TRAIN_DIR.exists():
-        try:
-            ALT_TRAIN_DIR.symlink_to(BASE_DIR, target_is_directory=True)
-        except OSError:
-            import shutil
-            shutil.copytree(BASE_DIR, ALT_TRAIN_DIR)
-
 # 2. Load the Dolly dataset (only 'train' exists)
 print("🔄 Loading Dolly-15K…")
 raw = load_dataset("databricks/databricks-dolly-15k")["train"]
