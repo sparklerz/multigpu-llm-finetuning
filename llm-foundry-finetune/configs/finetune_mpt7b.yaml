@@ -19,8 +19,6 @@ model:
   # keeps weights on CPU until ZeRO places them on GPUs
   init_device: meta
   trust_remote_code: true
-  config_overrides:
-    max_seq_len: 1024
 
 # ---- tokenizer ----
 tokenizer:
