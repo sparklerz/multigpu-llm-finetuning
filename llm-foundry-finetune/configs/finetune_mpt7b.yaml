@@ -32,9 +32,6 @@ tokenizer:
 train_loader:
   name: finetuning
   dataset:
-    # Use the HuggingFace JSON loader. The local files contain
-    # ``prompt`` and ``response`` fields so ``prompt_col`` and
-    # ``response_col`` are not required.
     hf_name: json
     hf_split: train
     data_files: data/dolly_15k_txt/train.jsonl
@@ -52,7 +49,6 @@ train_loader:
 eval_loader:
   name: finetuning
   dataset:
-    # Validation split of the same JSON dataset.
     hf_name: json
     hf_split: validation
     data_files: data/dolly_15k_txt/validation.jsonl
