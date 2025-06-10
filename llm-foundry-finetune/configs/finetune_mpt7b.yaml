@@ -9,7 +9,6 @@ variables:
 
 device_train_microbatch_size: 1
 global_train_batch_size: 8
-max_seq_len: 1024
 precision: bf16
 
 # ---- model ----
@@ -36,7 +35,7 @@ train_loader:
     input_path: data/dolly_15k_txt/train.jsonl
     decoder_only_format: true
     shuffle: true
-    max_seq_len: ${max_seq_len}
+    max_seq_len: 1024
   drop_last: false
   device_batch_size: 1
   num_workers: 2
@@ -52,7 +51,7 @@ eval_loader:
     input_path: data/dolly_15k_txt/validation.jsonl
     decoder_only_format: true
     shuffle: false
-    max_seq_len: ${max_seq_len}
+    max_seq_len: 1024
   drop_last: false
   device_batch_size: 1
   num_workers: 2
