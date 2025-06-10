@@ -33,7 +33,7 @@ train_loader:
   name: finetuning
   dataset:
     hf_name: json
-    hf_split: train
+    split: train
     data_files: data/dolly_15k_txt/train.jsonl
     decoder_only_format: true
     shuffle: true
@@ -50,7 +50,7 @@ eval_loader:
   name: finetuning
   dataset:
     hf_name: json
-    hf_split: validation
+    split: validation
     data_files: data/dolly_15k_txt/validation.jsonl
     decoder_only_format: true
     shuffle: false
