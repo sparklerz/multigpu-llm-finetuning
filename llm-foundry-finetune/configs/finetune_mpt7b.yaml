@@ -21,16 +21,12 @@ model:
   trust_remote_code: true
   config_overrides:
     max_seq_len: 1024
-  pretrained_hf_kwargs:
-    use_auth_token: true
 
 # ---- tokenizer ----
 tokenizer:
   name: mistralai/Mistral-7B-Instruct-v0.2
   pretrained_model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
   init_device: cpu
-  pretrained_hf_kwargs:
-    use_auth_token: true
 
 # ---- data ----
 train_loader:
