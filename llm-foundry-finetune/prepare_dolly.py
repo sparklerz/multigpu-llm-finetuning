@@ -5,7 +5,11 @@ import pathlib
 from datasets import load_dataset
 
 # 1. Prepare output folder
-BASE_DIR = pathlib.Path("data/dolly_15k_txt")
+# Always place the dataset at the repository root so that it matches the
+# paths expected by the training config regardless of the current working
+# directory when this script is executed.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+BASE_DIR = REPO_ROOT / "data" / "dolly_15k_txt"
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 OUT_DIR = BASE_DIR
 
