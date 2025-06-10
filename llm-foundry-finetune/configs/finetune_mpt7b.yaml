@@ -34,7 +34,10 @@ train_loader:
   dataset:
     hf_name: json
     split: train
-    data_files: data/dolly_15k_txt/train.jsonl
+    # HF `json` dataset expects split files to be provided in a dictionary.
+    # Point to the JSONL file inside the corresponding split directory.
+    data_files:
+      train: data/dolly_15k_txt/train/train.jsonl
     decoder_only_format: true
     shuffle: true
     max_seq_len: 1024
@@ -51,7 +54,8 @@ eval_loader:
   dataset:
     hf_name: json
     split: validation
-    data_files: data/dolly_15k_txt/validation.jsonl
+    data_files:
+      validation: data/dolly_15k_txt/validation/validation.jsonl
     decoder_only_format: true
     shuffle: false
     max_seq_len: 1024
