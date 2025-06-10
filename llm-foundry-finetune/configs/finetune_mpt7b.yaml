@@ -15,13 +15,13 @@ max_seq_len: 1024
 # ---- model ----
 model:
   name: hf_causal_lm
-  pretrained_model_name_or_path: bigscience/bloom-7b1
+  pretrained_model_name_or_path: bigscience/bloom-3b
   trust_remote_code: true
 
 # ---- tokenizer ----
 tokenizer:
-  name: bigscience/bloom-7b1
-  pretrained_model_name_or_path: bigscience/bloom-7b1
+  name: bigscience/bloom-3b
+  pretrained_model_name_or_path: bigscience/bloom-3b
   init_device: cpu
 
 # ---- data ----
