@@ -9,7 +9,6 @@ variables:
 
 device_train_microbatch_size: 1
 global_train_batch_size: 8
-max_seq_len: 1024
 precision: bf16
 
 # ---- model ----
@@ -32,10 +31,8 @@ tokenizer:
 train_loader:
   name: finetuning
   dataset:
-    hf_name: databricks/databricks-dolly-15k
-    split: train[:90%]
-    prompt_col: instruction
-    response_col: response
+    name: jsonl                 # load local JSONL
+    input_path: data/dolly_15k_txt/train.jsonl
     decoder_only_format: true
     shuffle: true
     max_seq_len: 1024
@@ -50,10 +47,8 @@ train_loader:
 eval_loader:
   name: finetuning
   dataset:
-    hf_name: databricks/databricks-dolly-15k
-    split: train[90%:]
-    prompt_col: instruction
-    response_col: response
+    name: jsonl
+    input_path: data/dolly_15k_txt/validation.jsonl
     decoder_only_format: true
     shuffle: false
     max_seq_len: 1024
@@ -100,7 +95,7 @@ callbacks:
   hf_checkpointer:
     save_folder: ./checkpoints              # where to write HF-format checkpoints
     save_interval: 1ep                      # every epoch
-    huggingface_folder_name: ba{batch}      # sub-folder format
+    huggingface_folder_name: "ba{batch}"      # sub-folder format
     precision: float16
     overwrite: true
     mlflow_registered_model_name: null      # no MLflow registry
