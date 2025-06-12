@@ -17,7 +17,7 @@ model:
   name: hf_causal_lm
   pretrained_model_name_or_path: facebook/opt-1.3b
   trust_remote_code: false
-  resize_embeddings: true
+  allow_embedding_resizing: true
 
 # ---- tokenizer ----
 tokenizer:
