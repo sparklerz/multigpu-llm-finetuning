@@ -48,7 +48,6 @@ train_loader:
     shuffle: true
     max_seq_len: 1024
   drop_last: false
-  device_batch_size: 1
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
@@ -71,7 +70,6 @@ eval_loader:
     shuffle: false
     max_seq_len: 1024
   drop_last: false
-  device_batch_size: 1
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
@@ -93,7 +91,7 @@ algorithms:
 
 scheduler:
   name: cosine_with_warmup
-  t_warmup: 0.05ep
+  t_warmup: 85ba
   t_max: 2ep
   alpha_f: 0.1
   scale_warmup: false
