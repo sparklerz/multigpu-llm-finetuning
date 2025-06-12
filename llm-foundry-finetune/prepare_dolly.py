@@ -37,8 +37,8 @@ def dump_jsonl(ds, name):
 
     examples = [
         json.dumps({
-            "prompt": ex["instruction"].strip() + " <|end_of_prompt|>",
-            "response": "<|response|> " + ex["response"].strip() + " <|end_of_response|>",
+            "prompt": ex["instruction"].strip(),
+            "response": ex["response"].strip(),
         }, ensure_ascii=False) + "\n" for ex in ds
     ]
 
