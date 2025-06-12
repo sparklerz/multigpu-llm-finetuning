@@ -110,7 +110,6 @@ loggers:
   wandb:
     project: llm-foundry-demo
     entity: kannansarat9
-    log_grads: true 
 callbacks:
   speed_monitor: {}
   lr_monitor: {}
