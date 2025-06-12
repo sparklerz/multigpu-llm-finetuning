@@ -35,7 +35,7 @@ train_loader:
     hf_kwargs:
       data_files:
         train: data/dolly_15k_txt/train.jsonl
-    decoder_only_format: false
+    decoder_only_format: true
     shuffle: true
     max_seq_len: 1024
   drop_last: false
@@ -54,7 +54,7 @@ eval_loader:
     hf_kwargs:
       data_files:
         validation: data/dolly_15k_txt/validation.jsonl
-    decoder_only_format: false
+    decoder_only_format: true
     shuffle: false
     max_seq_len: 1024
   drop_last: false
@@ -69,7 +69,8 @@ eval_loader:
 max_duration: 2ep
 optimizer:
   name: decoupled_adamw
-  lr: 1e-5
+  lr: 5e-6
+  grad_clip_norm: 1.0
   betas: [0.9, 0.95]
   weight_decay: 0.01
 
