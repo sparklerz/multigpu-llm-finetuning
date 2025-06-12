@@ -122,7 +122,5 @@ callbacks:
     mlflow_registered_model_name: null      # no MLflow registry
     mlflow_logging_config: null             # defaults only
     flatten_imports: ["llmfoundry"]
-    push_to_hub: true
-    hub_repo_id: ash001/llm-foundry-fsdp-opt-1.3b
 
 eval_interval: 100ba
