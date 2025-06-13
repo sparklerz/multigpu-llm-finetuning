@@ -114,7 +114,7 @@ callbacks:
   speed_monitor: {}
   lr_monitor: {}
   hf_checkpointer:
-    save_folder: ./checkpoints/huggingface  # where to write HF-format checkpoints
+    save_folder: ./checkpoints              # where to write HF-format checkpoints
     save_interval: 1ep                      # every epoch
     huggingface_folder_name: "ep{epoch}"    # sub-folder format
     precision: float16
