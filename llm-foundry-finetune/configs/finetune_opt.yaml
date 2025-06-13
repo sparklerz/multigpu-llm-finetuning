@@ -5,10 +5,10 @@ seed: ${variables.global_seed}    # this is the recognized field
 # ---- any free-form variables go here ----
 variables:
   global_seed: 42
-  grad_accum: 1
+  grad_accum: 4
 
-device_train_microbatch_size: 1
-global_train_batch_size: 4
+device_train_microbatch_size: 2
+global_train_batch_size: 16
 precision: amp_fp16
 max_seq_len: 1024
 
@@ -77,7 +77,7 @@ eval_loader:
   timeout: 0
 
 # ---- optimisation ----
-max_duration: 10ba
+max_duration: 2ep
 optimizer:
   name: decoupled_adamw
   lr: 1e-6
@@ -91,8 +91,8 @@ algorithms:
 
 scheduler:
   name: cosine_with_warmup
-  t_warmup: 2ba
-  t_max: 10ba
+  t_warmup: 85ba
+  t_max: 2ep
   alpha_f: 0.1
   scale_warmup: false
 
@@ -110,18 +110,17 @@ loggers:
   wandb:
     project: llm-foundry-demo
     entity: kannansarat9
-
 callbacks:
   speed_monitor: {}
   lr_monitor: {}
   hf_checkpointer:
     save_folder: ./checkpoints/huggingface  # where to write HF-format checkpoints
-    save_interval: 10ba                     # every epoch
-    huggingface_folder_name: "ba{batch}"    # sub-folder format
+    save_interval: 1ep                      # every epoch
+    huggingface_folder_name: "ep{epoch}"    # sub-folder format
     precision: float16
     overwrite: true
     mlflow_registered_model_name: null      # no MLflow registry
     mlflow_logging_config: null             # defaults only
     flatten_imports: ["llmfoundry"]
 
-eval_interval: 10ba
+eval_interval: 100ba
