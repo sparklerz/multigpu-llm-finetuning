@@ -1,0 +1,8 @@
+ray[train]
+transformers
+datasets
+deepspeed
+wandb
+torchmetrics
+huggingface_hub
+git-lfs
