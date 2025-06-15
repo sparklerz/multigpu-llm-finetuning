@@ -133,7 +133,7 @@ if __name__ == "__main__":
         scaling_config          = ScalingConfig(num_workers=2, use_gpu=True, resources_per_worker={"GPU": 1}),
         run_config              = RunConfig(
             name              = "llm_finetune_zero3",
-            storage_path      = "./ray_results",
+            storage_path      = f"file://{os.path.abspath('ray_results')}",
             checkpoint_config = CheckpointConfig(num_to_keep=2)
         ),
     )
