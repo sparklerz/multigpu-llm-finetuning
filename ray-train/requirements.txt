@@ -1,4 +1,4 @@
-ray[air]==2.11.0
+ray[air]==2.13.0
 transformers
 datasets
 deepspeed
