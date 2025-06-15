@@ -1,4 +1,4 @@
-import os, time, torch, ray
+import os, time, torch, ray, transformers
 from datasets import load_dataset
 from ray.train.torch import TorchTrainer
 from ray.train.huggingface.transformers import (
@@ -40,6 +40,7 @@ class HubTagEpochCallback(TrainerCallback):
 # ────────────────────────────────────────────────
 # 1 Build a vanilla HF Trainer (will be wrapped by Ray)
 def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
+    print(f"[Worker {os.environ.get('RANK')}] transformers {transformers.__version__}")
     model_name = cfg["model_name"]
 
     model = AutoModelForCausalLM.from_pretrained(model_name)
