@@ -81,6 +81,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         tokenizer=tok,
     )
     # Ray glue
+    trainer.add_callback(RayTrainReportCallback())
     return prepare_trainer(trainer)
 
 # ────────────────────────────────────────────────
@@ -89,8 +90,8 @@ def train_loop_per_worker(cfg):
     wandb.init(project="ray-bloom3b-zero3",
                name=f"worker-{os.environ.get('RANK', '0')}",
                reinit=True)
-    tok = AutoTokenizer.from_pretrained(cfg["model_name"], use_fast=True)
-    train_ds, eval_ds = get_dataset(tok)
+    train_ds = cfg.pop("train_ds")
+    eval_ds  = cfg.pop("eval_ds")
     trainer = trainer_init_per_worker(
         train_dataset=train_ds,
         eval_dataset=eval_ds,
