@@ -42,8 +42,10 @@ class HubTagEpochCallback(TrainerCallback):
 def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
     model_name = cfg["model_name"]
 
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    tok   = AutoTokenizer.from_pretrained(model_name, use_fast=True, local_files_only=True)
+    model = AutoModelForCausalLM.from_pretrained(model_name, 
+                                                torch_dtype=torch.float16,
+                                                low_cpu_mem_usage=True)
+    tok   = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     tok.pad_token = tok.eos_token        # safety for causal models
     collator = DataCollatorForLanguageModeling(tok, mlm=False)
 
@@ -121,11 +123,6 @@ if __name__ == "__main__":
         "wandb_run":         "ray-bloom3b-zero3"
     }
 
-    # Download & tokenise IMDb once on the driver
-    tok_driver = AutoTokenizer.from_pretrained(config["model_name"], use_fast=True)
-    train_ds, eval_ds = get_dataset(tok_driver)
-    config["train_ds"] = ray.put(train_ds)
-    config["eval_ds"]  = ray.put(eval_ds)
 
     trainer = TorchTrainer(
         train_loop_per_worker,
