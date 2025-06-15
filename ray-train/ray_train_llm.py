@@ -15,7 +15,7 @@ from transformers import (AutoModelForCausalLM,
 from huggingface_hub import Repository
 import wandb
 
-HF_REPO = "ash001/ray-train-zero-3-bloom-3B"
+HF_REPO = "ash001/ray-train-zero-3-bloom-1.7B"
 
 # ────────────────────────────────────────────────
 # 0  Simple W&B time-tracking callback
@@ -85,7 +85,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 # ────────────────────────────────────────────────
 # Ray train-loop entry point
 def train_loop_per_worker(cfg):
-    wandb.init(project="ray-bloom3b-zero3",
+    wandb.init(project="ray-bloom-1.7b-zero3",
                name=f"worker-{os.environ.get('RANK', '0')}",
                reinit=True)
     train_ds = cfg.pop("train_ds")
@@ -112,13 +112,13 @@ if __name__ == "__main__":
     ray.init()
 
     config = {
-        "model_name":        "bigscience/bloom-3b",
+        "model_name":        "bigscience/bloomz-1b7",
         "per_device_batch":   1,
         "epochs":             2,
         "lr":                 2e-5,
         "grad_accum":         8,
         "ds_config_path":    "ds_zero3.json",
-        "wandb_run":         "ray-bloom3b-zero3"
+        "wandb_run":         "ray-bloom-1.7b-zero3"
     }
 
     # Download & tokenise IMDb once on the driver
