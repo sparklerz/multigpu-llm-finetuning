@@ -1,6 +1,6 @@
 import os, time, torch, ray
 from datasets import load_dataset
-from ray.train.huggingface import TransformersTrainer
+from ray.train.huggingface.transformers import TransformersTrainer
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig
 from transformers import (AutoModelForCausalLM,
                           AutoTokenizer,
