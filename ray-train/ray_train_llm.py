@@ -1,11 +1,16 @@
 import os, time, torch, ray
 from datasets import load_dataset
-from ray.train.huggingface.transformers import TransformersTrainer
+from ray.train.torch import TorchTrainer
+from ray.train.huggingface.transformers import (
+    prepare_trainer, RayTrainReportCallback
+)
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig
+os.environ.setdefault("NCCL_P2P_DISABLE", "1")
 from transformers import (AutoModelForCausalLM,
                           AutoTokenizer,
                           DataCollatorForLanguageModeling,
                           TrainingArguments,
+                          Trainer,
                           TrainerCallback)
 from huggingface_hub import Repository
 import wandb
@@ -33,12 +38,12 @@ class HubTagEpochCallback(TrainerCallback):
 
 
 # ────────────────────────────────────────────────
-# 1  Ray “per-worker” initialiser
+# 1 Build a vanilla HF Trainer (will be wrapped by Ray)
 def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
     model_name = cfg["model_name"]
 
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    tok   = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    tok   = AutoTokenizer.from_pretrained(model_name, use_fast=True, local_files_only=True)
     tok.pad_token = tok.eos_token        # safety for causal models
     collator = DataCollatorForLanguageModeling(tok, mlm=False)
 
@@ -64,15 +69,33 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         run_name            = cfg["wandb_run"],
     )
 
-    return dict(
+    trainer = Trainer(
         model=model,
         args=args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collator,
         callbacks=[WallClockCallback(), HubTagEpochCallback()],
-        tokenizer=tok
+        tokenizer=tok,
     )
+    # Ray glue
+    trainer.add_callback(RayTrainReportCallback())
+    return prepare_trainer(trainer)
+
+# ────────────────────────────────────────────────
+# Ray train-loop entry point
+def train_loop_per_worker(cfg):
+    wandb.init(project="ray-bloom3b-zero3",
+               name=f"worker-{os.environ.get('RANK', '0')}",
+               reinit=True)
+    train_ds = cfg.pop("train_ds")
+    eval_ds  = cfg.pop("eval_ds")
+    trainer = trainer_init_per_worker(
+        train_dataset=train_ds,
+        eval_dataset=eval_ds,
+        **cfg
+    )
+    trainer.train()
 
 
 # ────────────────────────────────────────────────
@@ -87,8 +110,6 @@ def get_dataset(tok):
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
     ray.init()
-    tmp_tok = AutoTokenizer.from_pretrained("bigscience/bloom-3b")
-    train_ds, eval_ds = get_dataset(tmp_tok)
 
     config = {
         "model_name":        "bigscience/bloom-3b",
@@ -100,11 +121,16 @@ if __name__ == "__main__":
         "wandb_run":         "ray-bloom3b-zero3"
     }
 
-    trainer = TransformersTrainer(
-        trainer_init_per_worker = trainer_init_per_worker,
-        trainer_init_config     = config,
-        datasets                = {"train": train_ds, "evaluation": eval_ds},
-        scaling_config          = ScalingConfig(num_workers=2, use_gpu=True),
+    # Download & tokenise IMDb once on the driver
+    tok_driver = AutoTokenizer.from_pretrained(config["model_name"], use_fast=True)
+    train_ds, eval_ds = get_dataset(tok_driver)
+    config["train_ds"] = ray.put(train_ds)
+    config["eval_ds"]  = ray.put(eval_ds)
+
+    trainer = TorchTrainer(
+        train_loop_per_worker,
+        train_loop_config       = config,
+        scaling_config          = ScalingConfig(num_workers=2, use_gpu=True, resources_per_worker={"GPU": 1}),
         run_config              = RunConfig(
             name              = "llm_finetune_zero3",
             storage_path      = "./ray_results",
