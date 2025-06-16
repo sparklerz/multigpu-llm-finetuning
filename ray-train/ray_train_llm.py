@@ -50,7 +50,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 
     args = TrainingArguments(
         output_dir           = "./outputs",
-        evaluation_strategy  = "steps",
+        eval_strategy        = "steps",
         eval_steps           = 500,
         per_device_train_batch_size = cfg["per_device_batch"],
         per_device_eval_batch_size  = cfg["per_device_batch"],
@@ -86,9 +86,10 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 # ────────────────────────────────────────────────
 # Ray train-loop entry point
 def train_loop_per_worker(cfg):
-    wandb.init(project="ray-bloom-1.7b-zero3",
-               name=f"worker-{os.environ.get('RANK', '0')}",
-               reinit=True)
+    if ray.train.get_context().get_world_rank() == 0:
+        wandb.init(project="ray-bloom-1.7b-zero3",
+                name=f"worker-{os.environ.get('RANK', '0')}",
+                reinit=True)
     train_ds = cfg.pop("train_ds")
     eval_ds  = cfg.pop("eval_ds")
     trainer = trainer_init_per_worker(
@@ -126,8 +127,8 @@ if __name__ == "__main__":
     # Download & tokenise IMDb once on the driver
     tok_driver = AutoTokenizer.from_pretrained(config["model_name"], use_fast=True)
     train_ds, eval_ds = get_dataset(tok_driver)
-    config["train_ds"] = ray.put(train_ds)
-    config["eval_ds"]  = ray.put(eval_ds)
+    config["train_ds"] = train_ds
+    config["eval_ds"]  = eval_ds
 
     trainer = TorchTrainer(
         train_loop_per_worker,
