@@ -13,6 +13,7 @@ from transformers import (AutoModelForCausalLM,
                           Trainer,
                           TrainerCallback)
 from huggingface_hub import Repository
+import json, pathlib
 import wandb
 
 HF_REPO = "ash001/ray-train-zero-3-bloom-1.7B"
@@ -63,7 +64,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         hub_model_id         = HF_REPO,
         hub_strategy         = "checkpoint",
         hub_private_repo     = False,
-        deepspeed           = cfg["ds_config_path"],
+        deepspeed           = cfg["ds_config"],
         fp16                = True,
         report_to           = "wandb",
         run_name            = cfg["wandb_run"],
@@ -110,6 +111,7 @@ def get_dataset(tok):
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
     ray.init()
+    ds_conf = json.load(open(pathlib.Path(__file__).parent / "ds_zero3.json"))
 
     config = {
         "model_name":        "bigscience/bloomz-1b7",
@@ -117,7 +119,7 @@ if __name__ == "__main__":
         "epochs":             2,
         "lr":                 2e-5,
         "grad_accum":         8,
-        "ds_config_path":    "ds_zero3.json",
+        "ds_config":          ds_conf,
         "wandb_run":         "ray-bloom-1.7b-zero3"
     }
 
