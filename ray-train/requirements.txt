@@ -3,7 +3,7 @@ transformers==4.48.0
 peft==0.15.2
 accelerate==0.32.1
 datasets
-deepspeed
+deepspeed==0.14.4
 wandb
 torchmetrics
 huggingface_hub
