@@ -8,3 +8,4 @@ wandb
 torchmetrics
 huggingface_hub
 git-lfs
+bitsandbytes==0.43.1
