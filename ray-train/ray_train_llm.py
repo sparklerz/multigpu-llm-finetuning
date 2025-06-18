@@ -104,9 +104,10 @@ def train_loop_per_worker(cfg):
 # 2  Dataset: IMDB
 def get_dataset(tok):
     ds = load_dataset("imdb", split="train[:2%]")
-    ds = ds.train_test_split(test_size=0.1)
     def tok_fn(ex): return tok(ex["text"], truncation=True, max_length=512)
-    return ds["train"].map(tok_fn, batched=True), ds["test"].map(tok_fn, batched=True)
+    tokenised = ds.map(tok_fn, batched=True, remove_columns=["text", "label"])
+    split = tokenised.train_test_split(test_size=0.1)
+    return split["train"], split["test"]
 
 
 # ────────────────────────────────────────────────
