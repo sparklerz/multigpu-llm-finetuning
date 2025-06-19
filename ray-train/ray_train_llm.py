@@ -61,6 +61,8 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         gradient_accumulation_steps = cfg["grad_accum"],
         gradient_checkpointing       = True,
         save_strategy        = "epoch",
+        save_total_limit     = 1,
+        save_on_each_node    = False,
         push_to_hub          = True,
         hub_model_id         = HF_REPO,
         hub_strategy         = "checkpoint",
@@ -140,7 +142,7 @@ if __name__ == "__main__":
         run_config              = RunConfig(
             name              = "llm_finetune_zero3",
             storage_path      = f"file://{os.path.abspath('ray_results')}",
-            checkpoint_config = CheckpointConfig(num_to_keep=2)
+            checkpoint_config = CheckpointConfig(num_to_keep=1)
         ),
     )
 
