@@ -9,4 +9,4 @@ torchmetrics
 huggingface_hub>=0.25.0
 git-lfs
 bitsandbytes==0.43.1
-triton==3.1.0
+triton==2.2.0
