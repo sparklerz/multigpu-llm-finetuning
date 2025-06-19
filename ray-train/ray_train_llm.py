@@ -66,6 +66,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         hub_private_repo     = False,
         deepspeed           = cfg["ds_config"],
         fp16                = True,
+        optim               = "paged_adamw_8bit",
         report_to           = "wandb",
         run_name            = cfg["wandb_run"],
     )
