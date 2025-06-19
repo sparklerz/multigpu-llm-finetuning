@@ -57,7 +57,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         per_device_eval_batch_size  = cfg["per_device_batch"],
         learning_rate        = cfg["lr"],
         num_train_epochs     = cfg["epochs"],
-        logging_steps        = 50,
+        logging_steps        = 1,
         gradient_accumulation_steps = cfg["grad_accum"],
         gradient_checkpointing       = True,
         save_strategy        = "epoch",
