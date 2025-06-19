@@ -14,6 +14,7 @@ from transformers import (AutoModelForCausalLM,
                           TrainerCallback)
 from huggingface_hub import Repository
 import json, pathlib
+import ray
 import wandb
 
 HF_REPO = "ash001/ray-train-zero-3-bloom-1B"
@@ -30,12 +31,12 @@ class WallClockCallback(TrainerCallback):
             wandb.log({"train/runtime_seconds": time.time() - self._start})
 
 class HubTagEpochCallback(TrainerCallback):
-    def on_epoch_end(self, args, state, control, **kw):
-        if torch.distributed.get_rank() == 0:
-            repo = Repository(args.output_dir, clone_from=HF_REPO, token=os.environ.get("HF_TOKEN"))
+    def on_epoch_end(self, args, state, control, **_):
+        if (torch.distributed.get_rank() == 0 and ray.train.get_context().get_world_rank() == 0):
+            repo = Repository(args.output_dir, clone_from=HF_REPO, token=os.getenv("HF_TOKEN"))
             tag = f"epoch-{int(state.epoch)}"
-            repo.git_tag(tag)
-            repo.git_push(tags=True)
+            repo.add_tag(tag)
+            repo.push_to_hub()
 
 
 # ────────────────────────────────────────────────

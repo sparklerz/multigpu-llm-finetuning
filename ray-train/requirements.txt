@@ -6,6 +6,6 @@ datasets
 deepspeed==0.14.5
 wandb
 torchmetrics
-huggingface_hub
+huggingface_hub>=0.25.0
 git-lfs
 bitsandbytes==0.43.1
