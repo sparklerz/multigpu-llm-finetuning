@@ -122,7 +122,7 @@ if __name__ == "__main__":
     config = {
         "model_name":        "bigscience/bloomz-1b1",
         "per_device_batch":   1,
-        "epochs":             2,
+        "epochs":             1,
         "lr":                 2e-5,
         "grad_accum":         8,
         "ds_config":          ds_conf,
