@@ -3,6 +3,8 @@
     "gradient_accumulation_steps": 8,
     "zero_optimization": {
         "stage": 3,
+        "reduce_bucket_size": 200000000,
+        "allgather_bucket_size": 200000000,
         "offload_param": {
             "device": "none"
         },
