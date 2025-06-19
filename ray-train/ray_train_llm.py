@@ -60,7 +60,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         logging_steps        = 1,
         gradient_accumulation_steps = cfg["grad_accum"],
         gradient_checkpointing       = True,
-        save_strategy        = "epoch",
+        save_strategy        = "no",
         save_total_limit     = 1,
         save_on_each_node    = False,
         push_to_hub          = True,

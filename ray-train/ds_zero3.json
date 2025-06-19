@@ -3,6 +3,8 @@
     "gradient_accumulation_steps": 8,
     "zero_optimization": {
         "stage": 3,
+        "stage3_gather_16bit_weights_on_model_save": true,
+        "zero3_save_16bit_model": true,
         "reduce_bucket_size": 200000000,
         "allgather_bucket_size": 200000000,
         "offload_param": {
@@ -11,6 +13,7 @@
         "offload_optimizer": { 
             "device": "none"
         },
+        "save_optimizer_states": false,
         "overlap_comm": true,
         "contiguous_gradients": true
     },
