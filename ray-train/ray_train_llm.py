@@ -12,7 +12,6 @@ from transformers import (AutoModelForCausalLM,
                           TrainingArguments,
                           Trainer,
                           TrainerCallback)
-from huggingface_hub import Repository
 import json, pathlib
 import ray
 import wandb
@@ -30,14 +29,8 @@ class WallClockCallback(TrainerCallback):
         if torch.distributed.get_rank() == 0:
             wandb.log({"train/runtime_seconds": time.time() - self._start})
 
-class HubTagEpochCallback(TrainerCallback):
-    def on_epoch_end(self, args, state, control, **_):
-        if (torch.distributed.get_rank() == 0 and ray.train.get_context().get_world_rank() == 0):
-            repo = Repository(args.output_dir, clone_from=HF_REPO, token=os.getenv("HF_TOKEN"))
-            tag = f"epoch-{int(state.epoch)}"
-            repo.add_tag(tag)
-            repo.push_to_hub()
-
+def is_main_worker() -> bool:
+    return ray.train.get_context().get_world_rank() == 0
 
 # ────────────────────────────────────────────────
 # 1 Build a vanilla HF Trainer (will be wrapped by Ray)
@@ -51,8 +44,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 
     args = TrainingArguments(
         output_dir           = "./outputs",
-        eval_strategy        = "steps",
-        eval_steps           = 500,
+        eval_strategy        = "epoch",
         per_device_train_batch_size = cfg["per_device_batch"],
         per_device_eval_batch_size  = cfg["per_device_batch"],
         learning_rate        = cfg["lr"],
@@ -63,9 +55,9 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         save_strategy        = "epoch",
         save_total_limit     = 1,
         save_on_each_node    = False,
-        push_to_hub          = True,
+        push_to_hub          = is_main_worker(),
         hub_model_id         = HF_REPO,
-        hub_strategy         = "checkpoint",
+        hub_strategy         = "end",
         hub_private_repo     = False,
         deepspeed           = cfg["ds_config"],
         fp16                = True,
@@ -80,7 +72,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collator,
-        callbacks=[WallClockCallback(), HubTagEpochCallback()],
+        callbacks=[WallClockCallback()],
         tokenizer=tok,
     )
     # Ray glue
