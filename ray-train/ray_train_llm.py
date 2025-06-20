@@ -57,8 +57,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 
     args = TrainingArguments(
         output_dir           = "./outputs",
-        eval_strategy        = "steps",
-        eval_steps           = 500,
+        eval_strategy        = "epoch",
         per_device_train_batch_size = cfg["per_device_batch"],
         per_device_eval_batch_size  = cfg["per_device_batch"],
         learning_rate        = cfg["lr"],
@@ -71,7 +70,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         save_on_each_node    = False,
         push_to_hub          = True,
         hub_model_id         = HF_REPO,
-        hub_strategy         = "checkpoint",
+        hub_strategy         = "end",
         hub_private_repo     = False,
         deepspeed           = cfg["ds_config"],
         fp16                = True,
