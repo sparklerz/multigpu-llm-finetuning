@@ -29,6 +29,12 @@ class WallClockCallback(TrainerCallback):
         if torch.distributed.get_rank() == 0:
             wandb.log({"train/runtime_seconds": time.time() - self._start})
 
+class MeanLossCallback(TrainerCallback):
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None or "loss" not in logs:
+            return
+        logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
+
 def is_main_worker() -> bool:
     return ray.train.get_context().get_world_rank() == 0
 
@@ -72,7 +78,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collator,
-        callbacks=[WallClockCallback()],
+        callbacks=[WallClockCallback(), MeanLossCallback()],
         tokenizer=tok,
     )
     # Ray glue
