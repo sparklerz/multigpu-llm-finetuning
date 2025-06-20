@@ -1,4 +1,5 @@
 import os, time, torch, ray
+os.environ["RAY_TMPDIR"] = "/kaggle/working/ray_tmp"
 from datasets import load_dataset
 from ray.train.torch import TorchTrainer
 from ray.train.huggingface.transformers import (
@@ -49,7 +50,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
     collator = DataCollatorForLanguageModeling(tok, mlm=False)
 
     args = TrainingArguments(
-        output_dir           = "./outputs",
+        output_dir           = "/kaggle/working/outputs",
         eval_strategy        = "epoch",
         per_device_train_batch_size = cfg["per_device_batch"],
         per_device_eval_batch_size  = cfg["per_device_batch"],
