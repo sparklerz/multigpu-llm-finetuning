@@ -40,7 +40,15 @@ class MeanLossCallback(TrainerCallback):
     def on_log(self, args, state, control, logs=None, **kwargs):
         if logs is None or "loss" not in logs:
             return
-        logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
+
+        mean_loss = logs["loss"] / args.gradient_accumulation_steps
+
+        # keep the metric inside Hugging Face’s own log dict too
+        logs["mean_loss"] = mean_loss
+
+        # push to wandb – but only once per distributed step
+        if (ray.train.get_context().get_world_rank() == 0 and wandb.run is not None):
+            wandb.log({"train/mean_loss": mean_loss}, step=state.global_step)
 
 class HubTagEpochCallback(TrainerCallback):
     def on_epoch_end(self, args, state, control, **_):
