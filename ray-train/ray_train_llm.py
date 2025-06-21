@@ -36,20 +36,20 @@ class MeanLossCallback(TrainerCallback):
             return
         logs["loss"] = logs["loss"] / args.gradient_accumulation_steps
 
-class HubTagEpochCallback(TrainerCallback):
-    def on_epoch_end(self, args, state, control, **_):
-        if (torch.distributed.get_rank() == 0 and ray.train.get_context().get_world_rank() == 0):
-            # create /<output_dir>/hf_repo once and clone into it
-            repo_dir = os.path.join(args.output_dir, "hf_repo")
-            os.makedirs(repo_dir, exist_ok=True)                # safe even if it already exists
+# class HubTagEpochCallback(TrainerCallback):
+#     def on_epoch_end(self, args, state, control, **_):
+#         if (torch.distributed.get_rank() == 0 and ray.train.get_context().get_world_rank() == 0):
+#             # create /<output_dir>/hf_repo once and clone into it
+#             repo_dir = os.path.join(args.output_dir, "hf_repo")
+#             os.makedirs(repo_dir, exist_ok=True)                # safe even if it already exists
 
-            # if the folder isn't a git repo yet, clone; otherwise just reopen it
-            if not os.path.isdir(os.path.join(repo_dir, ".git")):
-                Repository(repo_dir, clone_from=HF_REPO, token=os.getenv("HF_TOKEN"))
-            repo = Repository(repo_dir, token=os.getenv("HF_TOKEN"))
-            tag = f"epoch-{int(state.epoch)}"
-            repo.add_tag(tag)
-            repo.push_to_hub()
+#             # if the folder isn't a git repo yet, clone; otherwise just reopen it
+#             if not os.path.isdir(os.path.join(repo_dir, ".git")):
+#                 Repository(repo_dir, clone_from=HF_REPO, token=os.getenv("HF_TOKEN"))
+#             repo = Repository(repo_dir, token=os.getenv("HF_TOKEN"))
+#             tag = f"epoch-{int(state.epoch)}"
+#             repo.add_tag(tag)
+#             repo.push_to_hub()
 
 
 # ────────────────────────────────────────────────
@@ -92,7 +92,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collator,
-        callbacks=[WallClockCallback(), MeanLossCallback(), HubTagEpochCallback()],
+        callbacks=[WallClockCallback(), MeanLossCallback()],
         tokenizer=tok,
     )
     # Ray glue
