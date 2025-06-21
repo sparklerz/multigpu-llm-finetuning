@@ -121,7 +121,9 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 # ────────────────────────────────────────────────
 # Ray train-loop entry point
 def train_loop_per_worker(cfg):
-    os.environ["HF_TOKEN"] = HF_TOKEN
+    hf_token = cfg.pop("hf_token", None)
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
     if ray.train.get_context().get_world_rank() == 0:
         wandb.init(project="ray-bloom-1b-zero3",
                 name=f"worker-{os.environ.get('RANK', '0')}",
@@ -175,8 +177,7 @@ if __name__ == "__main__":
         run_config              = RunConfig(
             name              = "llm_finetune_zero3",
             storage_path      = f"file://{os.path.abspath('ray_results')}",
-            checkpoint_config = CheckpointConfig(num_to_keep=1),
-            env_vars          = {"HF_TOKEN": HF_TOKEN}
+            checkpoint_config = CheckpointConfig(num_to_keep=1)
         ),
     )
 
