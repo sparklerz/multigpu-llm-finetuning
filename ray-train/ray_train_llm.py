@@ -64,7 +64,7 @@ class HubTagEpochCallback(TrainerCallback):
 
             tag = f"epoch-{int(state.epoch)}"
             repo.add_tag(tag)
-            repo.push_to_hub(tags=[tag], commit_message=f"Tag {tag}")
+            repo.git_push("--tags")
 
 
 # ────────────────────────────────────────────────
