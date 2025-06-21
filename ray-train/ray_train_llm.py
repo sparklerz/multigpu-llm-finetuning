@@ -62,12 +62,9 @@ class HubTagEpochCallback(TrainerCallback):
                 Repository(repo_dir, clone_from=HF_REPO, token=HF_TOKEN)
             repo = Repository(repo_dir, token=HF_TOKEN)
 
-            # Commit the freshly-dumped checkpoint *before* tagging
-            repo.git_add(".")
-            repo.git_commit(f"Add checkpoint for epoch {int(state.epoch)}")
             tag = f"epoch-{int(state.epoch)}"
             repo.add_tag(tag)
-            repo.push_to_hub()
+            repo.push_to_hub(tags=[tag], commit_message=f"Tag {tag}")
 
 
 # ────────────────────────────────────────────────
@@ -121,7 +118,9 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 # ────────────────────────────────────────────────
 # Ray train-loop entry point
 def train_loop_per_worker(cfg):
-    os.environ["HF_TOKEN"] = HF_TOKEN
+    hf_token = cfg.pop("hf_token", None)
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
     if ray.train.get_context().get_world_rank() == 0:
         wandb.init(project="ray-bloom-1b-zero3",
                 name=f"worker-{os.environ.get('RANK', '0')}",
@@ -175,8 +174,7 @@ if __name__ == "__main__":
         run_config              = RunConfig(
             name              = "llm_finetune_zero3",
             storage_path      = f"file://{os.path.abspath('ray_results')}",
-            checkpoint_config = CheckpointConfig(num_to_keep=1),
-            env_vars          = {"HF_TOKEN": HF_TOKEN}
+            checkpoint_config = CheckpointConfig(num_to_keep=1)
         ),
     )
 
