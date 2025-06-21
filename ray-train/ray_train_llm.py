@@ -12,12 +12,18 @@ from transformers import (AutoModelForCausalLM,
                           TrainingArguments,
                           Trainer,
                           TrainerCallback)
-from huggingface_hub import Repository
+from huggingface_hub import Repository, HfApi, login
 import json, pathlib
 import ray
 import wandb
 
 HF_REPO = "ash001/ray-train-zero-3-bloom-1B"
+HF_TOKEN = os.getenv("HF_TOKEN")
+if HF_TOKEN is None:
+    raise RuntimeError(
+        "HF_TOKEN is not set."
+    )
+login(token=HF_TOKEN)
 
 # ────────────────────────────────────────────────
 # 0  Simple W&B time-tracking callback
@@ -45,8 +51,12 @@ class HubTagEpochCallback(TrainerCallback):
 
             # if the folder isn't a git repo yet, clone; otherwise just reopen it
             if not os.path.isdir(os.path.join(repo_dir, ".git")):
-                Repository(repo_dir, clone_from=HF_REPO, token=os.getenv("HF_TOKEN"))
-            repo = Repository(repo_dir, token=os.getenv("HF_TOKEN"))
+                Repository(repo_dir, clone_from=HF_REPO, token=HF_TOKEN)
+            repo = Repository(repo_dir, token=HF_TOKEN)
+
+            # Commit the freshly-dumped checkpoint *before* tagging
+            repo.git_add(".")
+            repo.git_commit(f"Add checkpoint for epoch {int(state.epoch)}")
             tag = f"epoch-{int(state.epoch)}"
             repo.add_tag(tag)
             repo.push_to_hub()
@@ -77,7 +87,8 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
         save_on_each_node    = False,
         push_to_hub          = True,
         hub_model_id         = HF_REPO,
-        hub_strategy         = "end",
+        hub_strategy         = "checkpoint",
+        hub_token            = HF_TOKEN,
         hub_private_repo     = False,
         deepspeed           = cfg["ds_config"],
         fp16                = True,
@@ -102,6 +113,7 @@ def trainer_init_per_worker(train_dataset=None, eval_dataset=None, **cfg):
 # ────────────────────────────────────────────────
 # Ray train-loop entry point
 def train_loop_per_worker(cfg):
+    os.environ["HF_TOKEN"] = HF_TOKEN
     if ray.train.get_context().get_world_rank() == 0:
         wandb.init(project="ray-bloom-1b-zero3",
                 name=f"worker-{os.environ.get('RANK', '0')}",
@@ -138,7 +150,8 @@ if __name__ == "__main__":
         "lr":                 2e-5,
         "grad_accum":         8,
         "ds_config":          ds_conf,
-        "wandb_run":         "ray-bloom-1b-zero3"
+        "wandb_run":         "ray-bloom-1b-zero3",
+        "hf_token":          HF_TOKEN
     }
 
     # Download & tokenise IMDb once on the driver
@@ -154,7 +167,8 @@ if __name__ == "__main__":
         run_config              = RunConfig(
             name              = "llm_finetune_zero3",
             storage_path      = f"file://{os.path.abspath('ray_results')}",
-            checkpoint_config = CheckpointConfig(num_to_keep=1)
+            checkpoint_config = CheckpointConfig(num_to_keep=1),
+            env_vars          = {"HF_TOKEN": HF_TOKEN}
         ),
     )
 
