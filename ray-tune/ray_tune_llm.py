@@ -133,7 +133,7 @@ if __name__ == "__main__":
     tuner = tune.Tuner(
         tune.with_resources(
             train_fn,
-            resources={"cpu": 4, "gpu": 1}  # → 2 concurrent trials on 2 GPUs
+            resources={"cpu": 2, "gpu": 1}  # → 2 concurrent trials on 2 GPUs
         ),
         tune_config=tune.TuneConfig(
             scheduler=scheduler,
