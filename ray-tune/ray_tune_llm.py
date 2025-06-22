@@ -70,18 +70,14 @@ def train_fn(config):
         save_strategy="epoch",                  # checkpoints handled by Ray
         logging_strategy="steps",
         logging_steps=1,
+        max_grad_norm=1.0,
         bf16=torch.cuda.is_bf16_supported(), # bf16 on ampere+
         fp16=not torch.cuda.is_bf16_supported(),
+        fp16_full_eval=False,
         dataloader_pin_memory=True
     )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        trust_remote_code=True,
-        torch_dtype=torch.float16,
-        device_map="auto",
-        low_cpu_mem_usage=True,
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
     model.gradient_checkpointing_enable()
     trainer = Trainer(
         model=model,
@@ -117,7 +113,7 @@ if __name__ == "__main__":
 
     # ── Hyper-parameter search space ────────────────────────────────
     param_space = {
-        "lr": tune.loguniform(1e-5, 5e-4),
+        "lr": tune.loguniform(5e-6, 5e-5),
         "batch_size": tune.choice([1, 2, 4]),
         "weight_decay": tune.uniform(0.0, 0.3),
         "epochs": tune.choice([1, 2, 3]),
