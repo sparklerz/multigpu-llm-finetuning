@@ -11,10 +11,8 @@ from transformers import (
     set_seed
 )
 
-os.environ.setdefault("WANDB_PROJECT", "ray-tune-qwen")
+os.environ.setdefault("WANDB_PROJECT", "ray-tune-bloom")
 os.environ.setdefault("WANDB_WATCH",   "false")          # skip parameter histograms
-
-MODEL = "Qwen/Qwen2-0.5B-Instruct"
 
 # 1 ──────────────────────────────────────────────────────────────────
 # Helper: load + tokenise IMDb once per trial
@@ -35,11 +33,10 @@ def train_fn(config):
 
     model_name = config.get(
         "model_name",
-        MODEL
+        "bigscience/bloomz-1b1"
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, trust_remote_code=True)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    tokenizer.pad_token = tokenizer.eos_token
 
     train_ds, val_ds = get_imdb(tokenizer)
     collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
@@ -124,7 +121,7 @@ if __name__ == "__main__":
         "warmup_steps": tune.choice([0, 100, 200]),
         "seed": 42,
         # Constant entries still live in config for transparency
-        "model_name": MODEL,
+        "model_name": "bigscience/bloomz-1b1",
     }
 
     # ── Early-stopping scheduler (ASHA) ─────────────────────────────
@@ -163,9 +160,9 @@ if __name__ == "__main__":
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
-    tokenizer = AutoTokenizer.from_pretrained(best_dir, use_fast=True, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(best_dir, use_fast=True)
 
-    repo_id = "ash001/ray-tune-qwen-0.5B"
+    repo_id = "ash001/ray-tune-bloom-1B"
     model.push_to_hub(repo_id)
     tokenizer.push_to_hub(repo_id)
 
