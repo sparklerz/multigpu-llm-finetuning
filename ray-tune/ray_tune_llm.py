@@ -103,9 +103,9 @@ def train_fn(config):
             )
             trainer.save_model(trial_dir)
             # report to Ray Tune (drives ASHA)
-            tune.report(
-                eval_loss=metrics["eval_loss"],
-                training_iteration=epoch + 1,   # ASHA’s time_attr
+            session.report(
+                {"eval_loss": metrics["eval_loss"],
+                 "training_iteration": epoch + 1},
                 checkpoint=Checkpoint.from_directory(trial_dir)
             )
     finally:
