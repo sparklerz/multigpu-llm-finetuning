@@ -1,0 +1,6 @@
+ray[air]==2.34.0
+transformers
+datasets
+accelerate
+wandb
+bitsandbytes
