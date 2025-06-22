@@ -2,7 +2,7 @@ import os, math, torch, ray, wandb
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.train import Checkpoint
-from huggingface_hub import login
+from ray.air import session
 from datasets import load_dataset
 from transformers import (
     AutoModelForCausalLM, AutoTokenizer,
@@ -41,7 +41,8 @@ def train_fn(config):
     train_ds, val_ds = get_imdb(tokenizer)
     collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
 
-    run_name = f"tune-{tune.get_trial_id()}"
+    run_name = f"tune-{session.get_trial_id()}"
+    trial_dir = session.get_trial_dir()
 
     wandb.init(
         project=os.getenv("WANDB_PROJECT"),
@@ -51,7 +52,7 @@ def train_fn(config):
     )
 
     args = TrainingArguments(
-        output_dir=tune.get_trial_dir(),      # Ray mounts per-trial dir
+        output_dir=trial_dir,
         run_name=run_name,
         report_to=["wandb"],
         per_device_train_batch_size=config["batch_size"],
@@ -89,12 +90,12 @@ def train_fn(config):
             wandb.log(
                 {"eval_loss": metrics["eval_loss"], "epoch": epoch + 1}
             )
-            trainer.save_model(tune.get_trial_dir())
+            trainer.save_model(trial_dir)
             # report to Ray Tune (drives ASHA)
             tune.report(
                 eval_loss=metrics["eval_loss"],
                 training_iteration=epoch + 1,   # ASHA’s time_attr
-                checkpoint=Checkpoint.from_directory(tune.get_trial_dir())
+                checkpoint=Checkpoint.from_directory(trial_dir)
             )
     finally:
         wandb.finish()
