@@ -1,6 +1,6 @@
 ray[air]==2.34.0
-transformers
-datasets
-accelerate
-wandb
-bitsandbytes
+transformers==4.41.0
+datasets>=2.20.0
+accelerate>=0.29.0
+wandb==0.16.5
+bitsandbytes==0.43.0
