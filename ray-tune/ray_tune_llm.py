@@ -1,7 +1,7 @@
 import os, math, torch, ray, wandb
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
-from ray.air import Checkpoint
+from ray.train import Checkpoint
 from huggingface_hub import login
 from datasets import load_dataset
 from transformers import (
