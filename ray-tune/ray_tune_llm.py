@@ -62,7 +62,7 @@ def train_fn(config):
         weight_decay=config["weight_decay"],
         num_train_epochs=1,
         warmup_steps=config["warmup_steps"],
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",                  # checkpoints handled by Ray
         logging_strategy="steps",
         logging_steps=1,
