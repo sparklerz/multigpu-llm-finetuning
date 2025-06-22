@@ -21,7 +21,7 @@ MODEL = "Qwen/Qwen2-0.5B-Instruct"
 def get_imdb(tokenizer):
     ds = load_dataset("imdb", split="train[:4%]")
     def tok_fn(ex):                     # truncate to fit GPU memory
-        return tokenizer(ex["text"], truncation=True, max_length=512)
+        return tokenizer(ex["text"], truncation=True, max_length=256)
     tok = ds.map(tok_fn, batched=True, remove_columns=["text", "label"])
     split = tok.train_test_split(test_size=0.1, seed=42)
     return split["train"], split["test"]
@@ -60,7 +60,9 @@ def train_fn(config):
         report_to=["wandb"],
         per_device_train_batch_size=config["batch_size"],
         per_device_eval_batch_size=config["batch_size"],
-        gradient_accumulation_steps=math.ceil(32 / config["batch_size"]),
+        gradient_accumulation_steps=max(1, 32 // config["batch_size"]),
+        gradient_checkpointing=True,
+        optim="paged_adamw_8bit",
         learning_rate=config["lr"],
         weight_decay=config["weight_decay"],
         num_train_epochs=1,
@@ -74,7 +76,14 @@ def train_fn(config):
         dataloader_pin_memory=True
     )
 
-    model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        trust_remote_code=True,
+        torch_dtype=torch.float16,
+        device_map="auto",
+        low_cpu_mem_usage=True,
+    )
+    model.gradient_checkpointing_enable()
     trainer = Trainer(
         model=model,
         args=args,
@@ -110,7 +119,7 @@ if __name__ == "__main__":
     # ── Hyper-parameter search space ────────────────────────────────
     param_space = {
         "lr": tune.loguniform(1e-5, 5e-4),
-        "batch_size": tune.choice([4, 8, 16]),
+        "batch_size": tune.choice([1, 2, 4]),
         "weight_decay": tune.uniform(0.0, 0.3),
         "epochs": tune.choice([1, 2, 3]),
         "warmup_steps": tune.choice([0, 100, 200]),
