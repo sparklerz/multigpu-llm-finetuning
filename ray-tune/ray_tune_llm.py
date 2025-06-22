@@ -62,7 +62,6 @@ def train_fn(config):
         per_device_eval_batch_size=config["batch_size"],
         gradient_accumulation_steps=max(1, 32 // config["batch_size"]),
         gradient_checkpointing=True,
-        optim="paged_adamw_8bit",
         learning_rate=config["lr"],
         weight_decay=config["weight_decay"],
         num_train_epochs=1,
