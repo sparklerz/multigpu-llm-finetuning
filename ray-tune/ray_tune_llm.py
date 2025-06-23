@@ -1,8 +1,8 @@
-import os, math, torch, ray, wandb
+import os, math, torch, ray, wandb, pathlib
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.train import Checkpoint
-from ray.air import session
+from ray.air import session, RunConfig, CheckpointConfig
 from datasets import load_dataset
 from transformers import (
     AutoModelForCausalLM, AutoTokenizer,
@@ -68,6 +68,7 @@ def train_fn(config):
         warmup_steps=config["warmup_steps"],
         eval_strategy="epoch",
         save_strategy="epoch",                  # checkpoints handled by Ray
+        save_total_limit=1,
         logging_strategy="steps",
         logging_steps=1,
         max_grad_norm=1.0,
@@ -97,13 +98,14 @@ def train_fn(config):
             wandb.log(
                 {"eval_loss": metrics["eval_loss"], "epoch": epoch + 1}
             )
-            trainer.save_model(trial_dir)
             # report to Ray Tune (drives ASHA)
             session.report(
                 {"eval_loss": metrics["eval_loss"],
                  "training_iteration": epoch + 1},
                 checkpoint=Checkpoint.from_directory(trial_dir)
             )
+        model_dir = os.path.join(trial_dir, "model")
+        trainer.save_model(model_dir)
     finally:
         wandb.finish()
 
@@ -144,6 +146,13 @@ if __name__ == "__main__":
             num_samples=8,                   # total trials
         ),
         param_space=param_space,
+        run_config=RunConfig(
+            checkpoint_config=CheckpointConfig(
+                num_to_keep=1,
+                checkpoint_score_attribute="eval_loss",
+                checkpoint_score_order="min",
+            ),
+        ),
     )
 
     results = tuner.fit()
@@ -154,8 +163,7 @@ if __name__ == "__main__":
 
     # ──  Push the best checkpoint to the Hub  ─────────────────────
 
-    # Ray AIR checkpoint → local directory with model files
-    best_dir = best.checkpoint.to_directory("best_checkpoint")
+    best_dir = pathlib.Path(best.path) / "model"
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
