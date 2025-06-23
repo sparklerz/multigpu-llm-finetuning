@@ -1,5 +1,5 @@
-import os, math, torch, ray, wandb, pathlib
-from ray import tune
+import os, math, torch, ray, wandb, pathlib, tempfile, shutil
+from ray import tune, train
 from ray.tune.schedulers import ASHAScheduler
 from ray.train import Checkpoint
 from ray.air import session, RunConfig, CheckpointConfig
@@ -55,7 +55,7 @@ def train_fn(config):
     )
 
     args = TrainingArguments(
-        output_dir=trial_dir,
+        output_dir="/tmp/ignore",
         run_name=run_name,
         report_to=["wandb"],
         per_device_train_batch_size=config["batch_size"],
@@ -67,7 +67,7 @@ def train_fn(config):
         num_train_epochs=1,
         warmup_steps=config["warmup_steps"],
         eval_strategy="epoch",
-        save_strategy="epoch",                  # checkpoints handled by Ray
+        save_strategy="no",
         save_total_limit=1,
         logging_strategy="steps",
         logging_steps=1,
@@ -98,14 +98,21 @@ def train_fn(config):
             wandb.log(
                 {"eval_loss": metrics["eval_loss"], "epoch": epoch + 1}
             )
+            checkpoint = None
+            if train.get_context().get_world_rank() == 0:
+                with tempfile.TemporaryDirectory() as tmp:
+                    trainer.save_model(tmp)              # writes model + tokenizer
+                    tokenizer.save_pretrained(tmp)
+                    checkpoint = Checkpoint.from_directory(tmp)
             # report to Ray Tune (drives ASHA)
             session.report(
                 {"eval_loss": metrics["eval_loss"],
                  "training_iteration": epoch + 1},
-                checkpoint=Checkpoint.from_directory(trial_dir)
+                checkpoint=checkpoint
             )
         model_dir = os.path.join(trial_dir, "model")
         trainer.save_model(model_dir)
+        tokenizer.save_pretrained(model_dir)
     finally:
         wandb.finish()
 
@@ -158,12 +165,16 @@ if __name__ == "__main__":
     results = tuner.fit()
 
     best = results.get_best_result(metric="eval_loss", mode="min")
+    for r in results:
+        if r.path != best.path:
+            shutil.rmtree(r.path, ignore_errors=True)
     print("\n🎯  Best hyper-params:", best.config)
     print("📉  Best eval-loss   :", best.metrics['eval_loss'])
 
     # ──  Push the best checkpoint to the Hub  ─────────────────────
 
-    best_dir = pathlib.Path(best.path) / "model"
+    with best.checkpoint.as_directory() as ckpt_dir:
+        best_dir = pathlib.Path(ckpt_dir)
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
