@@ -157,7 +157,7 @@ if __name__ == "__main__":
         ),
         tune_config=tune.TuneConfig(
             scheduler=scheduler,
-            num_samples=8,                   # total trials
+            num_samples=2,                   # total trials
         ),
         param_space=param_space,
         run_config=RunConfig(
