@@ -162,7 +162,6 @@ if __name__ == "__main__":
         param_space=param_space,
         run_config=RunConfig(
             checkpoint_config=CheckpointConfig(
-                checkpoint_at_end=True,
                 num_to_keep=1,
                 checkpoint_score_attribute="eval_loss",
                 checkpoint_score_order="min",
