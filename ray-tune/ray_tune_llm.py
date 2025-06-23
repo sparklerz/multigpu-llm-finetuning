@@ -1,4 +1,4 @@
-import os, math, torch, ray, wandb, pathlib, tempfile, shutil
+import os, math, torch, ray, wandb, pathlib, shutil
 from ray import tune, train
 from ray.tune.schedulers import ASHAScheduler
 from ray.train import Checkpoint
@@ -100,11 +100,13 @@ def train_fn(config):
             )
             checkpoint = None
             if train.get_context().get_world_rank() == 0:
-                with tempfile.TemporaryDirectory() as tmp:
-                    trainer.save_model(tmp)              # writes model + tokenizer
-                    tokenizer.save_pretrained(tmp)
-                    checkpoint = Checkpoint.from_directory(tmp)
-            # report to Ray Tune (drives ASHA)
+                # persist inside this trial’s folder so Ray can still access it
+                ckpt_dir = os.path.join(trial_dir, f"epoch_{epoch+1}")
+                os.makedirs(ckpt_dir, exist_ok=True)
+                trainer.save_model(ckpt_dir)             # writes model + tokenizer
+                tokenizer.save_pretrained(ckpt_dir)
+                checkpoint = Checkpoint.from_directory(ckpt_dir)
+           # report to Ray Tune (drives ASHA)
             session.report(
                 {"eval_loss": metrics["eval_loss"],
                  "training_iteration": epoch + 1},
@@ -113,6 +115,11 @@ def train_fn(config):
         model_dir = os.path.join(trial_dir, "model")
         trainer.save_model(model_dir)
         tokenizer.save_pretrained(model_dir)
+        session.report(
+            {"eval_loss": metrics["eval_loss"],
+             "training_iteration": int(config["epochs"])},
+            checkpoint=Checkpoint.from_directory(model_dir)
+        )
     finally:
         wandb.finish()
 
@@ -155,6 +162,7 @@ if __name__ == "__main__":
         param_space=param_space,
         run_config=RunConfig(
             checkpoint_config=CheckpointConfig(
+                checkpoint_at_end=True,
                 num_to_keep=1,
                 checkpoint_score_attribute="eval_loss",
                 checkpoint_score_order="min",
@@ -173,8 +181,11 @@ if __name__ == "__main__":
 
     # ──  Push the best checkpoint to the Hub  ─────────────────────
 
-    with best.checkpoint.as_directory() as ckpt_dir:
-        best_dir = pathlib.Path(ckpt_dir)
+    if best.checkpoint:
+        with best.checkpoint.as_directory() as ckpt_dir:
+            best_dir = pathlib.Path(ckpt_dir)
+    else:
+        best_dir = pathlib.Path(best.path) / "model"
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
