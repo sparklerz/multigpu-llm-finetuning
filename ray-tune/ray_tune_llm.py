@@ -19,7 +19,7 @@ MODEL = "Qwen/Qwen2-0.5B-Instruct"
 # 1 ──────────────────────────────────────────────────────────────────
 # Helper: load + tokenise IMDb once per trial
 def get_imdb(tokenizer):
-    ds = load_dataset("imdb", split="train[:2%]")
+    ds = load_dataset("imdb", split="train[:30%]")
     def tok_fn(ex):                     # truncate to fit GPU memory
         return tokenizer(ex["text"], truncation=True, max_length=256)
     tok = ds.map(tok_fn, batched=True, remove_columns=["text", "label"])
