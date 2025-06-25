@@ -89,37 +89,30 @@ def train_fn(config):
     )
 
     try:
+        prev_dir = None
         # ── run & report one epoch at a time ───────────────────────
         for epoch in range(int(config["epochs"])):
             trainer.train(resume_from_checkpoint=None)
             metrics = trainer.evaluate()
+            # report to Ray Tune (drives ASHA)
+            session.report(
+                {"eval_loss": metrics["eval_loss"],
+                 "training_iteration": epoch + 1}
+            )
 
             # log to W&B
             wandb.log(
                 {"eval_loss": metrics["eval_loss"], "epoch": epoch + 1}
             )
-            checkpoint = None
             if train.get_context().get_world_rank() == 0:
-                # persist inside this trial’s folder so Ray can still access it
-                ckpt_dir = os.path.join(trial_dir, f"epoch_{epoch+1}")
-                os.makedirs(ckpt_dir, exist_ok=True)
-                trainer.save_model(ckpt_dir)             # writes model + tokenizer
+                if prev_dir and os.path.exists(prev_dir):
+                    shutil.rmtree(prev_dir, ignore_errors=True)
+                ckpt_dir = os.path.join(trial_dir, "ckpt")
+                model.save_pretrained(ckpt_dir, safe_serialization=True)
                 tokenizer.save_pretrained(ckpt_dir)
-                checkpoint = Checkpoint.from_directory(ckpt_dir)
-           # report to Ray Tune (drives ASHA)
-            session.report(
-                {"eval_loss": metrics["eval_loss"],
-                 "training_iteration": epoch + 1},
-                checkpoint=checkpoint
-            )
-        model_dir = os.path.join(trial_dir, "model")
-        trainer.save_model(model_dir)
-        tokenizer.save_pretrained(model_dir)
-        session.report(
-            {"eval_loss": metrics["eval_loss"],
-             "training_iteration": int(config["epochs"])},
-            checkpoint=Checkpoint.from_directory(model_dir)
-        )
+                prev_dir = ckpt_dir
+
+        session.report(metrics, checkpoint=Checkpoint.from_directory(prev_dir))
     finally:
         wandb.finish()
 
