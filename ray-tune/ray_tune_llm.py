@@ -175,10 +175,14 @@ if __name__ == "__main__":
     # ──  Push the best checkpoint to the Hub  ─────────────────────
 
     if best.checkpoint:
-        with best.checkpoint.as_directory() as ckpt_dir:
-            best_dir = ckpt_dir
+        best_dir = pathlib.Path("best_ckpt")
+        if best_dir.exists():
+            shutil.rmtree(best_dir)
+        best.checkpoint.to_directory(str(best_dir))
     else:
-        best_dir = str(pathlib.Path(best.path) / "ckpt")
+        best_dir = pathlib.Path(best.path) / "ckpt"
+
+    best_dir = str(best_dir)
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
