@@ -110,11 +110,12 @@ def train_fn(config):
                 checkpoint_obj = None          # non-zero ranks: no checkpoint
 
             # report to Ray Tune (drives ASHA)
-            session.report(
-                {"eval_loss": metrics["eval_loss"],
-                 "training_iteration": epoch + 1},
-                checkpoint=checkpoint_obj
-            )
+            if train.get_context().get_world_rank() == 0:
+                session.report(
+                    {"eval_loss": metrics["eval_loss"],
+                    "training_iteration": epoch + 1},
+                    checkpoint=checkpoint_obj
+                )
             
     finally:
         wandb.finish()
@@ -178,9 +179,9 @@ if __name__ == "__main__":
 
     if best.checkpoint:
         with best.checkpoint.as_directory() as ckpt_dir:
-            best_dir = pathlib.Path(ckpt_dir)
+            best_dir = ckpt_dir
     else:
-        best_dir = pathlib.Path(best.path) / "model"
+        best_dir = str(pathlib.Path(best.path) / "ckpt")
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
