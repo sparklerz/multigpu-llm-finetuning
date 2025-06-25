@@ -90,12 +90,15 @@ def train_fn(config):
 
     try:
         prev_dir = None
+        total_steps = 0
         # ── run & report one epoch at a time ───────────────────────
         for epoch in range(int(config["epochs"])):
             trainer.train(resume_from_checkpoint=None)
             metrics = trainer.evaluate()
             # ── rank-0: update rolling checkpoint and include it in report ──
             if train.get_context().get_world_rank() == 0:
+                wandb.log(metrics, step=total_steps + trainer.state.global_step)
+                total_steps += trainer.state.global_step
                 if prev_dir and os.path.exists(prev_dir):
                     shutil.rmtree(prev_dir, ignore_errors=True)
                 ckpt_dir = os.path.join(trial_dir, "ckpt")
