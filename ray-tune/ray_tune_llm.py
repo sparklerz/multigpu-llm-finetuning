@@ -94,16 +94,7 @@ def train_fn(config):
         for epoch in range(int(config["epochs"])):
             trainer.train(resume_from_checkpoint=None)
             metrics = trainer.evaluate()
-            # report to Ray Tune (drives ASHA)
-            session.report(
-                {"eval_loss": metrics["eval_loss"],
-                 "training_iteration": epoch + 1}
-            )
-
-            # log to W&B
-            wandb.log(
-                {"eval_loss": metrics["eval_loss"], "epoch": epoch + 1}
-            )
+            # ── rank-0: update rolling checkpoint and include it in report ──
             if train.get_context().get_world_rank() == 0:
                 if prev_dir and os.path.exists(prev_dir):
                     shutil.rmtree(prev_dir, ignore_errors=True)
@@ -111,8 +102,17 @@ def train_fn(config):
                 model.save_pretrained(ckpt_dir, safe_serialization=True)
                 tokenizer.save_pretrained(ckpt_dir)
                 prev_dir = ckpt_dir
+                checkpoint_obj = Checkpoint.from_directory(ckpt_dir)
+            else:
+                checkpoint_obj = None          # non-zero ranks: no checkpoint
 
-        session.report(metrics, checkpoint=Checkpoint.from_directory(prev_dir))
+            # report to Ray Tune (drives ASHA)
+            session.report(
+                {"eval_loss": metrics["eval_loss"],
+                 "training_iteration": epoch + 1},
+                checkpoint=checkpoint_obj
+            )
+            
     finally:
         wandb.finish()
 
