@@ -1,8 +1,8 @@
-import os, math, torch, ray, wandb, pathlib, shutil
-from ray import tune, train
+import os, math, torch, ray, wandb
+from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.train import Checkpoint
-from ray.air import session, RunConfig, CheckpointConfig
+from ray.air import session
 from datasets import load_dataset
 from transformers import (
     AutoModelForCausalLM, AutoTokenizer,
@@ -55,7 +55,7 @@ def train_fn(config):
     )
 
     args = TrainingArguments(
-        output_dir="/tmp/ignore",
+        output_dir=trial_dir,
         run_name=run_name,
         report_to=["wandb"],
         per_device_train_batch_size=config["batch_size"],
@@ -67,8 +67,7 @@ def train_fn(config):
         num_train_epochs=1,
         warmup_steps=config["warmup_steps"],
         eval_strategy="epoch",
-        save_strategy="no",
-        save_total_limit=1,
+        save_strategy="epoch",                  # checkpoints handled by Ray
         logging_strategy="steps",
         logging_steps=1,
         max_grad_norm=1.0,
@@ -98,28 +97,13 @@ def train_fn(config):
             wandb.log(
                 {"eval_loss": metrics["eval_loss"], "epoch": epoch + 1}
             )
-            checkpoint = None
-            if train.get_context().get_world_rank() == 0:
-                # persist inside this trial’s folder so Ray can still access it
-                ckpt_dir = os.path.join(trial_dir, f"epoch_{epoch+1}")
-                os.makedirs(ckpt_dir, exist_ok=True)
-                trainer.save_model(ckpt_dir)             # writes model + tokenizer
-                tokenizer.save_pretrained(ckpt_dir)
-                checkpoint = Checkpoint.from_directory(ckpt_dir)
-           # report to Ray Tune (drives ASHA)
+            trainer.save_model(trial_dir)
+            # report to Ray Tune (drives ASHA)
             session.report(
                 {"eval_loss": metrics["eval_loss"],
                  "training_iteration": epoch + 1},
-                checkpoint=checkpoint
+                checkpoint=Checkpoint.from_directory(trial_dir)
             )
-        model_dir = os.path.join(trial_dir, "model")
-        trainer.save_model(model_dir)
-        tokenizer.save_pretrained(model_dir)
-        session.report(
-            {"eval_loss": metrics["eval_loss"],
-             "training_iteration": int(config["epochs"])},
-            checkpoint=Checkpoint.from_directory(model_dir)
-        )
     finally:
         wandb.finish()
 
@@ -160,31 +144,18 @@ if __name__ == "__main__":
             num_samples=2,                   # total trials
         ),
         param_space=param_space,
-        run_config=RunConfig(
-            checkpoint_config=CheckpointConfig(
-                num_to_keep=1,
-                checkpoint_score_attribute="eval_loss",
-                checkpoint_score_order="min",
-            ),
-        ),
     )
 
     results = tuner.fit()
 
     best = results.get_best_result(metric="eval_loss", mode="min")
-    for r in results:
-        if r.path != best.path:
-            shutil.rmtree(r.path, ignore_errors=True)
     print("\n🎯  Best hyper-params:", best.config)
     print("📉  Best eval-loss   :", best.metrics['eval_loss'])
 
     # ──  Push the best checkpoint to the Hub  ─────────────────────
 
-    if best.checkpoint:
-        with best.checkpoint.as_directory() as ckpt_dir:
-            best_dir = pathlib.Path(ckpt_dir)
-    else:
-        best_dir = pathlib.Path(best.path) / "model"
+    # Ray AIR checkpoint → local directory with model files
+    best_dir = best.checkpoint.to_directory("best_checkpoint")
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
     model = AutoModelForCausalLM.from_pretrained(best_dir)
