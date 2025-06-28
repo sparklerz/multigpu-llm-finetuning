@@ -99,11 +99,19 @@ def train_fn(config):
                 wandb.log(metrics, step=trainer.state.global_step)
                 if prev_dir and os.path.exists(prev_dir):
                     shutil.rmtree(prev_dir, ignore_errors=True)
-                ckpt_dir = os.path.join(trial_dir, "ckpt")
-                model.save_pretrained(ckpt_dir, safe_serialization=True)
-                tokenizer.save_pretrained(ckpt_dir)
-                prev_dir = ckpt_dir
-                checkpoint_obj = Checkpoint.from_directory(ckpt_dir)
+                # Overwrite the *single* rolling checkpoint folder
+                final_dir = os.path.join(trial_dir, "ckpt")
+                trainer.save_model(final_dir)          # weights + config + code stub
+                tokenizer.save_pretrained(final_dir)
+
+                # Hand the stable path to Ray *after* it exists
+                checkpoint_obj = Checkpoint.from_directory(final_dir)
+
+                # Remove the previous checkpoint after Ray has copied it
+                if prev_dir and os.path.exists(prev_dir):
+                    shutil.rmtree(prev_dir, ignore_errors=True)
+
+                prev_dir = final_dir
             else:
                 checkpoint_obj = None          # non-zero ranks: no checkpoint
 
@@ -113,6 +121,8 @@ def train_fn(config):
                 "training_iteration": epoch + 1},
                 checkpoint=checkpoint_obj
             )
+        if train.get_context().get_world_rank() == 0 and checkpoint_obj is not None:
+            session.save_checkpoint(checkpoint_obj)
             
     finally:
         wandb.finish()
@@ -173,20 +183,29 @@ if __name__ == "__main__":
     print("📉  Best eval-loss   :", best.metrics['eval_loss'])
 
     # ──  Push the best checkpoint to the Hub  ─────────────────────
+    best_dir = pathlib.Path("best_ckpt")
+    if best_dir.exists():
+        shutil.rmtree(best_dir)
 
-    if best.checkpoint:
-        best_dir = pathlib.Path("best_ckpt")
-        if best_dir.exists():
-            shutil.rmtree(best_dir)
+    if best.checkpoint is not None:
         best.checkpoint.to_directory(str(best_dir))
-    else:
-        best_dir = pathlib.Path(best.path) / "ckpt"
+    else:                                   # should no longer happen, but keep as fallback
+        shutil.copytree(pathlib.Path(best.path) / "ckpt", best_dir, dirs_exist_ok=True)
 
-    best_dir = str(best_dir)
+    best_dir = str(best_dir)                # → str for HF loaders
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    model = AutoModelForCausalLM.from_pretrained(best_dir)
-    tokenizer = AutoTokenizer.from_pretrained(best_dir, use_fast=True, trust_remote_code=True)
+    # Qwen needs its custom modelling code; stay entirely local
+    model = AutoModelForCausalLM.from_pretrained(
+        best_dir,
+        trust_remote_code=True,
+        local_files_only=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        best_dir,
+        use_fast=True,
+        trust_remote_code=True,
+        local_files_only=True,
+    )
 
     repo_id = "ash001/ray-tune-qwen-0.5B"
     model.push_to_hub(repo_id)
