@@ -175,7 +175,7 @@ if __name__ == "__main__":
 
     results = tuner.fit()
 
-    best = results.get_best_result(metric="eval_loss", mode="min")
+    best = results.get_best_result(metric="eval_loss", mode="min", scope="all")
     for r in results:
         if r.path != best.path:
             shutil.rmtree(r.path, ignore_errors=True)
@@ -187,10 +187,9 @@ if __name__ == "__main__":
     if best_dir.exists():
         shutil.rmtree(best_dir)
 
-    if best.checkpoint is not None:
-        best.checkpoint.to_directory(str(best_dir))
-    else:                                   # should no longer happen, but keep as fallback
-        shutil.copytree(pathlib.Path(best.path) / "ckpt", best_dir, dirs_exist_ok=True)
+    if best.checkpoint is None:
+        raise RuntimeError("Best result returned without a checkpoint")
+    best.checkpoint.to_directory(str(best_dir))
 
     best_dir = str(best_dir)                # → str for HF loaders
 
