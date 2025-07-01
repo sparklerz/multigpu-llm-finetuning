@@ -93,7 +93,7 @@ class Trainer:
             model,
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
-                reduce_dtype=torch.float32,
+                reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             ),
             forward_prefetch=False,
