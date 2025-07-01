@@ -87,12 +87,12 @@ class Trainer:
         )
 
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         fsdp_model = FSDP(
             model,
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float32,
+                param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             ),
