@@ -104,7 +104,7 @@ class Trainer:
 
         # Optimizer and GradScaler for AMP
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
-        self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.cuda.amp.GradScaler(enabled=False)
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -185,7 +185,7 @@ class Trainer:
                 attention_mask = batch["attention_mask"].to(self.device, non_blocking=True)
                 labels = batch["labels"].to(self.device, non_blocking=True)
 
-                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                with torch.autocast("cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     raw_loss = outputs.loss
                     scaled_loss = raw_loss / self.accum_steps
@@ -202,15 +202,12 @@ class Trainer:
                 step_loss += raw_loss.item()
 
                 # Backward pass with scaling
-                self.scaler.scale(scaled_loss).backward()
+                scaled_loss.backward()
                 accum += 1
 
                 if accum == self.accum_steps:
-                    # Unscale, clip gradients, optimizer step
-                    self.scaler.unscale_(self.optimizer)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
+                    self.optimizer.step()
                     self.optimizer.zero_grad()
 
                     # Compute averaged loss for this optimizer step
@@ -229,10 +226,8 @@ class Trainer:
 
             # Handle leftover accumulation
             if accum > 0:
-                self.scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                self.optimizer.step()
                 self.optimizer.zero_grad()
 
                 # Compute averaged leftover loss
