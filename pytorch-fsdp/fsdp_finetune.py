@@ -104,7 +104,7 @@ class Trainer:
 
         # Optimizer and GradScaler for AMP
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6, fused=True)
-        self.scaler = None
+        self.scaler = torch.cuda.amp.GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
