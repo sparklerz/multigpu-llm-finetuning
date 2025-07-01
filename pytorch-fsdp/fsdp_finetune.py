@@ -11,7 +11,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType, ShardingStrategy
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from transformers.models.opt.modeling_opt import OPTDecoderLayer
+import functools
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -86,6 +89,11 @@ class Trainer:
             pin_memory=True
         )
 
+        auto_wrap = functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls={OPTDecoderLayer},   # one shard per decoder layer
+        )
+
         # Initialize model with FSDP
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
@@ -95,7 +103,10 @@ class Trainer:
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
+                keep_low_precision_grads=True
             ),
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
+            auto_wrap_policy=auto_wrap,
             forward_prefetch=False,
             limit_all_gathers=True,
             device_id=self.local_rank
@@ -208,7 +219,7 @@ class Trainer:
                     print("Scale factor at start:", self.scaler.get_scale())
 
                 if accum == self.accum_steps:
-                    self.scaler.unscale_(self.optimizer)
+                    self.scaler.unscale_(self.optimizer, allow_fp16=True)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
@@ -230,7 +241,7 @@ class Trainer:
 
             # Handle leftover accumulation
             if accum > 0:
-                self.scaler.unscale_(self.optimizer)
+                self.scaler.unscale_(self.optimizer, allow_fp16=True)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
