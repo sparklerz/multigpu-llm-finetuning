@@ -1,1 +1,1 @@
-# pytorch-ddp
+# Mutli GPU LLM finetuning
