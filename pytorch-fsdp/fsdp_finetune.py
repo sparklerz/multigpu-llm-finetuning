@@ -87,21 +87,24 @@ class Trainer:
         )
 
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
+        model.gradient_checkpointing_enable()
         fsdp_model = FSDP(
             model,
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float32,
+                param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             ),
+            forward_prefetch=True,
+            limit_all_gathers=True,
             device_id=self.local_rank
         )
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
-        self.scaler = torch.amp.GradScaler()
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6, fused=True)
+        self.scaler = None
 
         # Compute total steps
         total_samples = end_idx - start_idx
