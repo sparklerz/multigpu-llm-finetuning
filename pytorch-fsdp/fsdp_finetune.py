@@ -16,7 +16,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecis
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
 
-MODEL_NAME = "bigscience/bloom-560m"
+MODEL_NAME = "facebook/opt-1.3b"
 DATASET_NAME = "ash001/arxiv-abstract"
 
 
@@ -121,7 +121,7 @@ class Trainer:
         # Initialize W&B on rank 0
         if self.local_rank == 0:
             wandb.init(
-                project="bloom-fsdp-arxiv",
+                project="opt-1.3B-fsdp-arxiv",
                 config={
                     "num_epochs": num_epochs,
                     "start_idx": start_idx,
@@ -132,7 +132,7 @@ class Trainer:
                     "hf_repo": hf_repo
                 }
             )
-            wandb.run.name = f"fsdp-bloom-{wandb.run.id}"
+            wandb.run.name = f"fsdp-opt-{wandb.run.id}"
             # Watch model parameters and gradients
             wandb.watch(self.model.module if hasattr(self.model, 'module') else self.model,
                         log="all", log_freq=10)
@@ -144,7 +144,7 @@ class Trainer:
 
         if self.local_rank == 0:
             epoch = self.epochs_run
-            name = f"bloom_560M_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
+            name = f"opt_1.3B_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
             torch.save({
                 "MODEL_STATE": sd,
                 "GLOBAL_STEP": self.global_step,
