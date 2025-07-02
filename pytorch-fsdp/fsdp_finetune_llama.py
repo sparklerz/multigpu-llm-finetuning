@@ -11,7 +11,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLan
 import wandb
 
 # FSDP imports
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType, ShardingStrategy
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -88,10 +90,17 @@ class Trainer:
 
         # Initialize model with FSDP
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
+        model.enable_input_require_grads()
+        model.gradient_checkpointing_enable()
+
+        wrap_policy = transformer_auto_wrap_policy({LlamaDecoderLayer})
+        
         fsdp_model = FSDP(
             model,
+            auto_wrap_policy=wrap_policy,
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float32,
+                param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             ),
