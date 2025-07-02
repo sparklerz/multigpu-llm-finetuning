@@ -9,12 +9,12 @@ from torch.nn.utils import clip_grad_norm_
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
 import wandb
+import functools
 
 # FSDP imports
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType, ShardingStrategy
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers.models.opt.modeling_opt import OPTDecoderLayer
-import functools
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -67,7 +67,7 @@ class Trainer:
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "right"
+        tokenizer.padding_side = "left"
 
         def tokenize_fn(example):
             tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length", return_attention_mask=True)
@@ -89,33 +89,33 @@ class Trainer:
             pin_memory=True
         )
 
-        auto_wrap = functools.partial(
-            transformer_auto_wrap_policy,
-            transformer_layer_cls={OPTDecoderLayer},   # one shard per decoder layer
-        )
-
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16)
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+        model.config.use_cache = False
+        model.enable_input_require_grads()
+        model.gradient_checkpointing_enable()
+
+        wrap_policy = functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls={OPTDecoderLayer},
+        )
+        
         fsdp_model = FSDP(
             model,
+            auto_wrap_policy=wrap_policy,
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
             mixed_precision=MixedPrecision(
                 param_dtype=torch.float16,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
-                keep_low_precision_grads=True
             ),
-            sharding_strategy=ShardingStrategy.FULL_SHARD,
-            auto_wrap_policy=auto_wrap,
-            forward_prefetch=False,
-            limit_all_gathers=True,
             device_id=self.local_rank
         )
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6, eps=1e-5)
-        self.scaler = torch.cuda.amp.GradScaler(init_scale = 2**14, growth_interval = 200)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
+        self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -186,7 +186,8 @@ class Trainer:
         self.model.train()
         for ep in range(self.epochs_run, self.epochs_run + self.num_epochs):
             self.loader.sampler.set_epoch(ep)
-            total_loss = 0.0
+            epoch_step_loss = 0.0
+            steps_this_epoch = 0
             accum = 0
             step_loss = 0.0
 
@@ -196,7 +197,7 @@ class Trainer:
                 attention_mask = batch["attention_mask"].to(self.device, non_blocking=True)
                 labels = batch["labels"].to(self.device, non_blocking=True)
 
-                with torch.autocast("cuda", dtype=torch.float16):
+                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     raw_loss = outputs.loss
                     scaled_loss = raw_loss / self.accum_steps
@@ -209,24 +210,24 @@ class Trainer:
                         f"accum-step {accum}, global_step {self.global_step} ***"
                     )
 
-                total_loss += raw_loss.item()
                 step_loss += raw_loss.item()
 
                 # Backward pass with scaling
                 self.scaler.scale(scaled_loss).backward()
                 accum += 1
-                if self.local_rank == 0 and microbatch_idx == 0:
-                    print("Scale factor at start:", self.scaler.get_scale())
 
                 if accum == self.accum_steps:
-                    self.scaler.unscale_(self.optimizer, allow_fp16=True)
+                    # Unscale, clip gradients, optimizer step
+                    self.scaler.unscale_(self.optimizer)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
-                    self.optimizer.zero_grad(set_to_none=True)
+                    self.optimizer.zero_grad()
 
                     # Compute averaged loss for this optimizer step
                     avg_step_loss = step_loss / self.accum_steps
+                    epoch_step_loss += avg_step_loss
+                    steps_this_epoch += 1
                     self.global_step += 1
                     accum = 0
                     step_loss = 0.0
@@ -241,23 +242,30 @@ class Trainer:
 
             # Handle leftover accumulation
             if accum > 0:
-                self.scaler.unscale_(self.optimizer, allow_fp16=True)
+                self.scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                self.optimizer.zero_grad(set_to_none=True)
+                self.optimizer.zero_grad()
 
                 # Compute averaged leftover loss
                 avg_leftover_loss = step_loss / accum
+                epoch_step_loss += avg_leftover_loss
+                steps_this_epoch += 1
                 self.global_step += 1
                 print(f"[Rank {self.local_rank}] Step {self.global_step} | Avg Loss: {avg_leftover_loss:.4f}")
                 if self.local_rank == 0:
                     wandb.log({"train_loss": avg_leftover_loss}, step=self.global_step)
 
-            avg_loss = total_loss / max(self.global_step, 1)
-            print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
+            epoch_avg_loss = epoch_step_loss / max(steps_this_epoch, 1)
+
+            loss_tensor = torch.tensor(epoch_avg_loss, device=self.device)
+            dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+            epoch_avg_loss = loss_tensor.item() / self.world_size
+
+            print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {epoch_avg_loss:.4f}")
             if self.local_rank == 0:
-                wandb.log({"epoch": ep + 1, "avg_loss": avg_loss})
+                wandb.log({"epoch": ep + 1, "avg_loss": epoch_avg_loss})
 
             self.epochs_run += 1
             self._save_checkpoint()
