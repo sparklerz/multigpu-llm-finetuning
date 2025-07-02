@@ -185,7 +185,8 @@ class Trainer:
         self.model.train()
         for ep in range(self.epochs_run, self.epochs_run + self.num_epochs):
             self.loader.sampler.set_epoch(ep)
-            total_loss = 0.0
+            epoch_step_loss = 0.0
+            steps_this_epoch = 0
             accum = 0
             step_loss = 0.0
 
@@ -208,7 +209,6 @@ class Trainer:
                         f"accum-step {accum}, global_step {self.global_step} ***"
                     )
 
-                total_loss += raw_loss.item()
                 step_loss += raw_loss.item()
 
                 # Backward pass with scaling
@@ -225,6 +225,8 @@ class Trainer:
 
                     # Compute averaged loss for this optimizer step
                     avg_step_loss = step_loss / self.accum_steps
+                    epoch_step_loss += avg_step_loss
+                    steps_this_epoch += 1
                     self.global_step += 1
                     accum = 0
                     step_loss = 0.0
@@ -247,15 +249,22 @@ class Trainer:
 
                 # Compute averaged leftover loss
                 avg_leftover_loss = step_loss / accum
+                epoch_step_loss += avg_leftover_loss
+                steps_this_epoch += 1
                 self.global_step += 1
                 print(f"[Rank {self.local_rank}] Step {self.global_step} | Avg Loss: {avg_leftover_loss:.4f}")
                 if self.local_rank == 0:
                     wandb.log({"train_loss": avg_leftover_loss}, step=self.global_step)
 
-            avg_loss = total_loss / max(self.global_step, 1)
-            print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {avg_loss:.4f}")
+            epoch_avg_loss = epoch_step_loss / max(steps_this_epoch, 1)
+
+            loss_tensor = torch.tensor(epoch_avg_loss, device=self.device)
+            dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+            epoch_avg_loss = loss_tensor.item() / self.world_size
+
+            print(f"[Rank {self.local_rank}] Epoch {ep+1} completed | Avg Loss: {epoch_avg_loss:.4f}")
             if self.local_rank == 0:
-                wandb.log({"epoch": ep + 1, "avg_loss": avg_loss})
+                wandb.log({"epoch": ep + 1, "avg_loss": epoch_avg_loss})
 
             self.epochs_run += 1
             self._save_checkpoint()
