@@ -14,12 +14,12 @@ import functools
 # FSDP imports
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType, ShardingStrategy
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-from transformers.models.opt.modeling_opt import OPTDecoderLayer
+from transformers.models.bloom.modeling_bloom import BloomBlock
 
 # Make sure each process only uses one OMP thread (avoids NCCL warnings).
 os.environ["OMP_NUM_THREADS"] = "1"
 
-MODEL_NAME = "facebook/opt-2.7b"
+MODEL_NAME = "bigscience/bloomz-1b7"
 DATASET_NAME = "ash001/arxiv-abstract"
 
 
@@ -97,7 +97,7 @@ class Trainer:
 
         wrap_policy = functools.partial(
             transformer_auto_wrap_policy,
-            transformer_layer_cls={OPTDecoderLayer},
+            transformer_layer_cls={BloomBlock},
         )
         
         fsdp_model = FSDP(
@@ -135,7 +135,7 @@ class Trainer:
         # Initialize W&B on rank 0
         if self.local_rank == 0:
             wandb.init(
-                project="opt-2.7B-fsdp-arxiv",
+                project="bloomz-1.7B-fsdp-arxiv",
                 config={
                     "num_epochs": num_epochs,
                     "start_idx": start_idx,
@@ -146,7 +146,7 @@ class Trainer:
                     "hf_repo": hf_repo
                 }
             )
-            wandb.run.name = f"fsdp-opt-{wandb.run.id}"
+            wandb.run.name = f"fsdp-bloomz-{wandb.run.id}"
             # Watch model parameters and gradients
             wandb.watch(self.model.module if hasattr(self.model, 'module') else self.model,
                         log="all", log_freq=10)
@@ -158,7 +158,7 @@ class Trainer:
 
         if self.local_rank == 0:
             epoch = self.epochs_run
-            name = f"opt_2.7B_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
+            name = f"bloomz_1.7B_{self.start_idx}-{self.end_idx}-epoch-{epoch}.pt"
             torch.save({
                 "MODEL_STATE": sd,
                 "GLOBAL_STEP": self.global_step,
