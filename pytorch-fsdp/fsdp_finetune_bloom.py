@@ -61,10 +61,10 @@ class Trainer:
         ds = ds.filter(lambda ex: ex["text"] and ex["text"].strip())
 
         # Tokenizer setup (ensure pad_token exists)
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "left"
+        tokenizer.padding_side = "right"
 
         def tokenize_fn(example):
             tok = tokenizer(example["text"], truncation=True, max_length=512, padding="max_length", return_attention_mask=True)
@@ -87,24 +87,21 @@ class Trainer:
         )
 
         # Initialize model with FSDP
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.float16, trust_remote_code=True)
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
         fsdp_model = FSDP(
             model,
             mixed_precision=MixedPrecision(
-                param_dtype=torch.float16,
+                param_dtype=torch.float32,
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             ),
-            forward_prefetch=False,
-            limit_all_gathers=True,
             device_id=self.local_rank
         )
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
-        self.scaler = torch.cuda.amp.GradScaler(enabled=False)
+        self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -185,7 +182,7 @@ class Trainer:
                 attention_mask = batch["attention_mask"].to(self.device, non_blocking=True)
                 labels = batch["labels"].to(self.device, non_blocking=True)
 
-                with torch.autocast("cuda", dtype=torch.float16):
+                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     raw_loss = outputs.loss
                     scaled_loss = raw_loss / self.accum_steps
@@ -202,12 +199,15 @@ class Trainer:
                 step_loss += raw_loss.item()
 
                 # Backward pass with scaling
-                scaled_loss.backward()
+                self.scaler.scale(scaled_loss).backward()
                 accum += 1
 
                 if accum == self.accum_steps:
+                    # Unscale, clip gradients, optimizer step
+                    self.scaler.unscale_(self.optimizer)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                    self.optimizer.step()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                     self.optimizer.zero_grad()
 
                     # Compute averaged loss for this optimizer step
@@ -226,8 +226,10 @@ class Trainer:
 
             # Handle leftover accumulation
             if accum > 0:
+                self.scaler.unscale_(self.optimizer)
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
                 self.optimizer.zero_grad()
 
                 # Compute averaged leftover loss
