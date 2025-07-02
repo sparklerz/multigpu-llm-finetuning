@@ -9,6 +9,7 @@ from torch.nn.utils import clip_grad_norm_
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling
 import wandb
+import functools
 
 # FSDP imports
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, FullStateDictConfig, StateDictType, ShardingStrategy
@@ -93,7 +94,10 @@ class Trainer:
         model.enable_input_require_grads()
         model.gradient_checkpointing_enable()
 
-        wrap_policy = transformer_auto_wrap_policy({LlamaDecoderLayer})
+        wrap_policy = functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls={LlamaDecoderLayer},
+        )
         
         fsdp_model = FSDP(
             model,
