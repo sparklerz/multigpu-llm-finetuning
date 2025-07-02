@@ -88,7 +88,6 @@ class Trainer:
 
         # Initialize model with FSDP
         model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         fsdp_model = FSDP(
             model,
             mixed_precision=MixedPrecision(
@@ -96,15 +95,13 @@ class Trainer:
                 reduce_dtype=torch.float16,
                 buffer_dtype=torch.float16,
             ),
-            forward_prefetch=False,
-            limit_all_gathers=True,
             device_id=self.local_rank
         )
         self.model = fsdp_model.to(self.device)
 
         # Optimizer and GradScaler for AMP
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6, eps=1e-5)
-        self.scaler = torch.cuda.amp.GradScaler(init_scale = 2**14, growth_interval = 200)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-6)
+        self.scaler = torch.amp.GradScaler()
 
         # Compute total steps
         total_samples = end_idx - start_idx
@@ -185,7 +182,7 @@ class Trainer:
                 attention_mask = batch["attention_mask"].to(self.device, non_blocking=True)
                 labels = batch["labels"].to(self.device, non_blocking=True)
 
-                with torch.autocast("cuda", dtype=torch.float16):
+                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
                     outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     raw_loss = outputs.loss
                     scaled_loss = raw_loss / self.accum_steps
@@ -204,15 +201,14 @@ class Trainer:
                 # Backward pass with scaling
                 self.scaler.scale(scaled_loss).backward()
                 accum += 1
-                if self.local_rank == 0 and microbatch_idx == 0:
-                    print("Scale factor at start:", self.scaler.get_scale())
 
                 if accum == self.accum_steps:
+                    # Unscale, clip gradients, optimizer step
                     self.scaler.unscale_(self.optimizer)
                     clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
-                    self.optimizer.zero_grad(set_to_none=True)
+                    self.optimizer.zero_grad()
 
                     # Compute averaged loss for this optimizer step
                     avg_step_loss = step_loss / self.accum_steps
@@ -234,7 +230,7 @@ class Trainer:
                 clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                self.optimizer.zero_grad(set_to_none=True)
+                self.optimizer.zero_grad()
 
                 # Compute averaged leftover loss
                 avg_leftover_loss = step_loss / accum
