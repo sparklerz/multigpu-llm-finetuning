@@ -207,6 +207,9 @@ def main(args):
     if tok.pad_token_id is None:
         tok.add_special_tokens({'pad_token': '<pad>'})
 
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+
     base_model = AutoModelForCausalLM.from_pretrained(
         "facebook/opt-1.3b",
         torch_dtype=torch.float16
