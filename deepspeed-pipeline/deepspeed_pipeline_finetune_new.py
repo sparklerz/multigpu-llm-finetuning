@@ -5,6 +5,7 @@ import wandb
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
+from transformers.models.opt.modeling_opt import (OPTLearnedPositionalEmbedding, _make_causal_mask, _expand_mask)
 
 # ---------- helpers ---------------------------------------------------------
 
@@ -93,8 +94,9 @@ class EmbeddingPipe(nn.Module):
         if attn is None:
             attn = (ids != self.embed_tokens.padding_idx).long()
 
-        pos_emb = self.embed_positions(attn)
-        hidden  = self.embed_tokens(ids) + pos_emb
+        position_ids = (torch.cumsum(attn, dim=1) - 1).clamp(min=0)
+        pos_emb = self.embed_positions(position_ids)
+        hidden = self.embed_tokens(ids) + pos_emb
         if self.project_in is not None:
             hidden = self.project_in(hidden)
         return hidden, attn, labels
@@ -105,6 +107,8 @@ class DecoderLayerPipe(nn.Module):
         self.layer = layer
     def forward(self, inputs):
         hidden, attn, labels = normalise_batch(inputs)
+        if attn is not None and attn.dim() == 2:          # (B, S)
+            attn = _expand_mask(attn, hidden.dtype)       # (B,1,S,S)
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
 
