@@ -49,42 +49,42 @@ class EmbeddingPipe(nn.Module):
         self.embed_tokens    = decoder.embed_tokens
         self.embed_positions = decoder.embed_positions
         self.project_in      = decoder.project_in
+        self.hidden_size = decoder.embed_tokens.embedding_dim
+
+    def _is_hidden(self, tensor):
+        """True if this looks like (B, S, hidden) activations."""
+        return tensor.dim() == 3 and tensor.size(-1) == self.hidden_size
 
     def forward(self, inputs):
         while isinstance(inputs, (tuple, list)) and len(inputs) == 1:
             inputs = inputs[0]
 
-        # -----------------------------------------------------------
-        # ❶ Warm-up / flush micro-batch: already hidden states
-        #    Hidden states are float16/float32, never int64
-        # -----------------------------------------------------------
-        if torch.is_tensor(inputs) and inputs.dtype != torch.long:
-            # Pass straight through: we’ve already got embeddings
-            hidden = inputs
-            attn   = None
-            labels = None
-            return hidden, attn, labels
-
-        # -----------------------------------------------------------
-        # ❷ Normal training micro-batch: do the real embedding work
-        # -----------------------------------------------------------
+        if torch.is_tensor(inputs):
+            if self._is_hidden(inputs):          # already embedded
+                return inputs, None, None
+            # else treat as raw ids
         if isinstance(inputs, (tuple, list)) and len(inputs) == 3:
-            ids, attn, labels = inputs
-        elif torch.is_tensor(inputs):  # just ids
-            ids, attn, labels = inputs, None, None
-        elif isinstance(inputs, dict):
-            ids    = inputs["input_ids"]
-            attn   = inputs.get("attention_mask")
-            labels = inputs.get("labels")
-        else:
-            raise TypeError(f"Unexpected first-stage payload: {type(inputs)}")
+            a, b, c = inputs
+            if torch.is_tensor(a) and self._is_hidden(a):
+                return a, b, c
+            ids, attn, labels = a, b, c
 
-        # safety check — avoid the device-side assert
+        elif isinstance(inputs, dict):
+            ids   = inputs["input_ids"]
+            attn  = inputs.get("attention_mask")
+            labels= inputs.get("labels")
+        elif torch.is_tensor(inputs):
+            ids, attn, labels = inputs, None, None
+        else:
+            raise TypeError(f"Unexpected payload type: {type(inputs)}")
+
+        if torch.is_tensor(ids): print("ids range:", ids.min().item(), ids.max().item())
+
         if ids.dtype != torch.long:
-            raise RuntimeError("input_ids must be int64 here")
+            raise RuntimeError("input_ids must be int64")
         if ids.min() < 0 or ids.max() >= self.embed_tokens.num_embeddings:
             raise RuntimeError(
-                f"input_ids out of range: max={ids.max().item()} "
+                f"input_ids out of range: max={ids.max().item()}  "
                 f"(vocab={self.embed_tokens.num_embeddings})"
             )
         pos_ids = get_position_ids(ids.size(1), ids.device)
