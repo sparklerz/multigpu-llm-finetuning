@@ -222,11 +222,9 @@ def main(args):
         pin_memory  = True,
     )
 
-    pipe_model = build_pipeline(base_model)
+    base_model.lm_head.weight = base_model.model.decoder.embed_tokens.weight
 
-    pipe_model._layers[-1].lm_head.weight = (
-        pipe_model._layers[0].embed_tokens.weight
-    )
+    pipe_model = build_pipeline(base_model)
 
     ds_config = {
         "fp16": {"enabled": True},
