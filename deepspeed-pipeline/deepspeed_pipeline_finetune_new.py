@@ -224,6 +224,10 @@ def main(args):
 
     pipe_model = build_pipeline(base_model)
 
+    pipe_model._layers[-1].lm_head.weight = (
+        pipe_model._layers[0].embed_tokens.weight
+    )
+
     ds_config = {
         "fp16": {"enabled": True},
         "train_micro_batch_size_per_gpu": args.batch_size,
