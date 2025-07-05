@@ -5,7 +5,7 @@ import wandb
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
-from transformers.modeling_attn_mask_utils import _expand_mask
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 
 # ---------- helpers ---------------------------------------------------------
 
@@ -108,7 +108,12 @@ class DecoderLayerPipe(nn.Module):
     def forward(self, inputs):
         hidden, attn, labels = normalise_batch(inputs)
         if attn is not None and attn.dim() == 2:          # (B, S)
-            attn = _expand_mask(attn, hidden.dtype)       # (B,1,S,S)
+            attn = _prepare_4d_causal_attention_mask(
+                        attn,                                   # 2-D mask
+                        hidden.shape[:2],                       # (batch, seq_len)
+                        hidden,                                 # embeds (dtype/device)
+                        past_key_values_length=0,               # no KV-cache in training
+                    )
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
 
