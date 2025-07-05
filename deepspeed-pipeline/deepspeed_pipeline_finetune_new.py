@@ -10,6 +10,12 @@ from deepspeed.pipe import PipelineModule, LayerSpec
 def get_position_ids(seq_len, device):
     return torch.arange(0, seq_len, dtype=torch.long, device=device).unsqueeze(0)
 
+def _unwrap(inputs):
+    # peel away every “one-element tuple / list” wrapper
+    while isinstance(inputs, (tuple, list)) and len(inputs) == 1:
+        inputs = inputs[0]
+    return inputs
+
 class EmbeddingPipe(nn.Module):
     def __init__(self, decoder):
         super().__init__()
@@ -18,8 +24,7 @@ class EmbeddingPipe(nn.Module):
         self.project_in      = decoder.project_in
 
     def forward(self, inputs):
-        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
-            inputs = inputs[0]
+        inputs = _unwrap(inputs)
         ids, attn, labels = inputs
         pos_ids = get_position_ids(ids.size(1), ids.device)
         hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
@@ -32,8 +37,7 @@ class DecoderLayerPipe(nn.Module):
         super().__init__()
         self.layer = layer
     def forward(self, inputs):
-        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
-            inputs = inputs[0]
+        inputs = _unwrap(inputs)
         hidden, attn, labels = inputs
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
@@ -43,8 +47,7 @@ class FinalNormPipe(nn.Module):
         super().__init__()
         self.norm = norm
     def forward(self, inputs):
-        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
-            inputs = inputs[0]
+        inputs = _unwrap(inputs)
         hidden, attn, labels = inputs
         return self.norm(hidden), attn, labels
 
@@ -53,8 +56,7 @@ class LMHeadPipe(nn.Module):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
-        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
-            inputs = inputs[0]
+        inputs = _unwrap(inputs)
         hidden, _attn, labels = inputs
         logits = self.lm_head(hidden)
         if labels is not None:
