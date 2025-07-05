@@ -11,15 +11,13 @@ def get_position_ids(seq_len, device):
     return torch.arange(0, seq_len, dtype=torch.long, device=device).unsqueeze(0)
 
 class EmbeddingPipe(nn.Module):
-    """Embeddings + position encodings for OPT."""
     def __init__(self, decoder):
         super().__init__()
-        self.embed_tokens      = decoder.embed_tokens
-        self.embed_positions   = decoder.embed_positions
-        self.project_in        = decoder.project_in
+        self.embed_tokens    = decoder.embed_tokens
+        self.embed_positions = decoder.embed_positions
+        self.project_in      = decoder.project_in
 
-    def forward(self, inputs):
-        ids, attn, labels = inputs
+    def forward(self, ids, attn, labels):
         pos_ids = get_position_ids(ids.size(1), ids.device)
         hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
         if self.project_in is not None:
@@ -30,8 +28,7 @@ class DecoderLayerPipe(nn.Module):
     def __init__(self, layer):
         super().__init__()
         self.layer = layer
-    def forward(self, inputs):
-        hidden, attn, labels = inputs
+    def forward(self, hidden, attn, labels):
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
 
@@ -39,19 +36,15 @@ class FinalNormPipe(nn.Module):
     def __init__(self, norm):
         super().__init__()
         self.norm = norm
-    def forward(self, inputs):
-        hidden, attn, labels = inputs
+    def forward(self, hidden, attn, labels):
         return self.norm(hidden), attn, labels
 
 class LMHeadPipe(nn.Module):
-    """Last stage: computes logits and loss."""
     def __init__(self, lm_head):
         super().__init__()
         self.lm_head = lm_head
-    def forward(self, inputs):
-        hidden, _, labels = inputs
-        logits   = self.lm_head(hidden)
-        # shift-left language-model loss
+    def forward(self, hidden, attn, labels):
+        logits = self.lm_head(hidden)
         loss = None
         if labels is not None:
             loss = F.cross_entropy(
