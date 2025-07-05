@@ -7,8 +7,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
 
 # ---------- helpers ---------------------------------------------------------
-def get_position_ids(seq_len, device):
-    return torch.arange(0, seq_len, dtype=torch.long, device=device).unsqueeze(0)
 
 def normalise_batch(inputs):
     # 1) peel off DeepSpeed’s wrapper(s)
@@ -78,8 +76,6 @@ class EmbeddingPipe(nn.Module):
         else:
             raise TypeError(f"Unexpected payload type: {type(inputs)}")
 
-        if torch.is_tensor(ids): print("ids range:", ids.min().item(), ids.max().item()) #remove after debugging
-
         with torch.no_grad():
             max_id = ids.max()
             if max_id >= self.embed_tokens.num_embeddings:
@@ -93,8 +89,12 @@ class EmbeddingPipe(nn.Module):
                 f"input_ids out of range: max={ids.max().item()}  "
                 f"(vocab={self.embed_tokens.num_embeddings})"
             )
-        pos_ids = get_position_ids(ids.size(1), ids.device)
-        hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
+
+        if attn is None:
+            attn = (ids != self.embed_tokens.padding_idx).long()
+
+        pos_emb = self.embed_positions(attn)
+        hidden  = self.embed_tokens(ids) + pos_emb
         if self.project_in is not None:
             hidden = self.project_in(hidden)
         return hidden, attn, labels
