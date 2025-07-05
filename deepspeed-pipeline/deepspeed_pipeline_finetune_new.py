@@ -17,7 +17,8 @@ class EmbeddingPipe(nn.Module):
         self.embed_positions = decoder.embed_positions
         self.project_in      = decoder.project_in
 
-    def forward(self, ids, attn, labels):
+    def forward(self, inputs):
+        ids, attn, labels = inputs
         pos_ids = get_position_ids(ids.size(1), ids.device)
         hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
         if self.project_in is not None:
@@ -28,7 +29,8 @@ class DecoderLayerPipe(nn.Module):
     def __init__(self, layer):
         super().__init__()
         self.layer = layer
-    def forward(self, hidden, attn, labels):
+    def forward(self, inputs):
+        hidden, attn, labels = inputs
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
 
@@ -36,23 +38,25 @@ class FinalNormPipe(nn.Module):
     def __init__(self, norm):
         super().__init__()
         self.norm = norm
-    def forward(self, hidden, attn, labels):
+    def forward(self, inputs):
+        hidden, attn, labels = inputs
         return self.norm(hidden), attn, labels
 
 class LMHeadPipe(nn.Module):
     def __init__(self, lm_head):
         super().__init__()
         self.lm_head = lm_head
-    def forward(self, hidden, attn, labels):
+    def forward(self, inputs):
+        hidden, _attn, labels = inputs
         logits = self.lm_head(hidden)
-        loss = None
         if labels is not None:
             loss = F.cross_entropy(
                 logits[:, :-1].contiguous().view(-1, logits.size(-1)),
                 labels[:, 1:].contiguous().view(-1),
-                ignore_index = -100
+                ignore_index=-100
             )
-        return loss
+            return loss
+        return None
 
 def build_pipeline(model):
     """Turn HF OPT into a 2-stage PipelineModule."""
