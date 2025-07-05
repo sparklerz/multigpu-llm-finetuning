@@ -193,6 +193,14 @@ def main(args):
     tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b")
     tok.pad_token = tok.eos_token
 
+    base_model = AutoModelForCausalLM.from_pretrained(
+        "facebook/opt-1.3b",
+        torch_dtype=torch.float16
+    )
+
+    if len(tok) != base_model.model.decoder.embed_tokens.num_embeddings:
+        base_model.resize_token_embeddings(len(tok))
+
     def tokenize(ex):
         out = tok(ex["text"],
                   truncation=True,
