@@ -18,6 +18,8 @@ class EmbeddingPipe(nn.Module):
         self.project_in      = decoder.project_in
 
     def forward(self, inputs):
+        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
+            inputs = inputs[0]
         ids, attn, labels = inputs
         pos_ids = get_position_ids(ids.size(1), ids.device)
         hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
@@ -30,6 +32,8 @@ class DecoderLayerPipe(nn.Module):
         super().__init__()
         self.layer = layer
     def forward(self, inputs):
+        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
+            inputs = inputs[0]
         hidden, attn, labels = inputs
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
@@ -39,6 +43,8 @@ class FinalNormPipe(nn.Module):
         super().__init__()
         self.norm = norm
     def forward(self, inputs):
+        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
+            inputs = inputs[0]
         hidden, attn, labels = inputs
         return self.norm(hidden), attn, labels
 
@@ -47,6 +53,8 @@ class LMHeadPipe(nn.Module):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
+        if len(inputs) == 1 and isinstance(inputs[0], (tuple, list)):
+            inputs = inputs[0]
         hidden, _attn, labels = inputs
         logits = self.lm_head(hidden)
         if labels is not None:
