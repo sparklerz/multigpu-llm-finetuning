@@ -6,6 +6,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
+from itertools import repeat
 
 # ---------- helpers ---------------------------------------------------------
 
@@ -78,10 +79,13 @@ class EmbeddingPipe(nn.Module):
             raise TypeError(f"Unexpected payload type: {type(inputs)}")
 
         with torch.no_grad():
-            max_id = ids.max()
-            if max_id >= self.embed_tokens.num_embeddings:
-                bad = ids[max_id == ids].flatten()[:10].tolist()
-                raise RuntimeError(f"out-of-range token(s) {bad}  ≥  {self.embed_tokens.num_embeddings}")
+            max_id = int(ids.max().item())
+            if not 0 <= max_id < self.embed_tokens.num_embeddings:
+                bad = ids.flatten()[ids.flatten() >= self.embed_tokens.num_embeddings][:10].tolist()
+                raise RuntimeError(
+                    f"input_ids contain out-of-range token(s) {bad} "
+                    f"≥ vocab_size={self.embed_tokens.num_embeddings}"
+                )
         
         if ids.dtype != torch.long:
             raise RuntimeError("input_ids must be int64")
@@ -116,6 +120,7 @@ class DecoderLayerPipe(nn.Module):
                         hidden,                                 # embeds (dtype/device)
                         past_key_values_length=0,               # no KV-cache in training
                     )
+            attn = attn.to(dtype=torch.bool)
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
 
@@ -136,8 +141,11 @@ class LMHeadPipe(nn.Module):
         logits = self.lm_head(hidden)
         vocab = logits.size(-1)
         if labels is not None:
-            max_id = labels[:, 1:].max().item()
-            assert max_id < vocab, f"label id {max_id} ≥ vocab {vocab}"
+            max_lbl = int(labels.max().item())
+            if not -100 <= max_lbl < logits.size(-1):
+                raise RuntimeError(
+                    f"labels contain id {max_lbl} ≥ vocab_size={logits.size(-1)}"
+                )
         if labels is not None:
             loss = F.cross_entropy(
                 logits[:, :-1].contiguous().view(-1, logits.size(-1)),
@@ -194,20 +202,27 @@ def main(args):
     raw_ds  = raw_ds.filter(filter_empty)
     raw_ds  = raw_ds.select(range(args.start_idx, args.end_idx))
 
-    tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b")
+    tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b", revision="main", use_fast=True)
+
+    if tok.pad_token_id is None:
+        tok.add_special_tokens({'pad_token': '<pad>'})
 
     base_model = AutoModelForCausalLM.from_pretrained(
         "facebook/opt-1.3b",
         torch_dtype=torch.float16
     )
 
-    if len(tok) != base_model.model.decoder.embed_tokens.num_embeddings:
+    if len(tok) != base_model.config.vocab_size:
         base_model.resize_token_embeddings(len(tok))
         base_model.tie_weights()
 
     pad_id = tok.pad_token_id
     base_model.config.pad_token_id = pad_id
     base_model.model.decoder.embed_tokens.padding_idx = pad_id
+
+    with torch.no_grad(): #remove after debugging
+        dummy = torch.randint(0, len(tok), (1, 512), device="cpu")
+        _ = base_model.model.decoder.embed_tokens(dummy)
 
     def tokenize(ex):
         out = tok(ex["text"],
@@ -265,20 +280,30 @@ def main(args):
     t0             = time.time()
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
-        data_iter = (
-            (b["input_ids"].cuda(non_blocking=True),
-             b["attention_mask"].cuda(non_blocking=True),
-             b["labels"].cuda(non_blocking=True))
-            for b in loader
-        )
-        while samples_seen + args.batch_size * args.accum_steps <= samples_target:
-            if engine.is_first_stage():
-                loss = engine.train_batch(data_iter=data_iter)
-                samples_seen += args.batch_size * args.accum_steps
-            else:
-                loss = engine.train_batch()
-            global_steps += 1
 
+        if engine.is_first_stage():
+            data_stream = (
+                (batch["input_ids"].cuda(non_blocking=True),
+                batch["attention_mask"].cuda(non_blocking=True),
+                batch["labels"].cuda(non_blocking=True))
+                for batch in loader
+            )
+        else:
+            data_stream = repeat(None)            # dummy iterator – never consumed
+
+        while True:
+            # first stage pushes micro-batches; other stages just drive the pipe
+            try:
+                loss = (engine.train_batch(data_iter=data_stream)
+                        if engine.is_first_stage()
+                        else engine.train_batch())
+            except StopIteration:
+                break                             # data_stream exhausted — epoch done
+
+
+            samples_seen += args.batch_size * args.accum_steps
+
+            global_steps += 1
             if rank == 0 and global_steps % 10 == 0:
                 wandb.log({"train_loss": loss.item(),
                            "samples_seen": samples_seen,
