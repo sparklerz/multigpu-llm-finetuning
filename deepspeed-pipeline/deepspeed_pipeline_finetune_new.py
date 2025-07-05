@@ -219,11 +219,6 @@ def main(args):
         pin_memory  = True,
     )
 
-    # --- model & DeepSpeed --------------------------------------------------
-    base_model = AutoModelForCausalLM.from_pretrained(
-        "facebook/opt-1.3b",
-        torch_dtype = torch.float16
-    )
     pipe_model = build_pipeline(base_model)
 
     ds_config = {
