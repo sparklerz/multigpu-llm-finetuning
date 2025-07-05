@@ -10,11 +10,38 @@ from deepspeed.pipe import PipelineModule, LayerSpec
 def get_position_ids(seq_len, device):
     return torch.arange(0, seq_len, dtype=torch.long, device=device).unsqueeze(0)
 
-def _unwrap(inputs):
-    # peel away every “one-element tuple / list” wrapper
+def normalise_batch(inputs):
+    # 1) peel off DeepSpeed’s wrapper(s)
     while isinstance(inputs, (tuple, list)) and len(inputs) == 1:
         inputs = inputs[0]
-    return inputs
+
+    # 2) convert to canonical (ids, attn, labels) --------------------------
+    if isinstance(inputs, dict):                # dict from a DataLoader
+        ids   = inputs["input_ids"]
+        attn  = inputs.get("attention_mask", None)
+        labels= inputs.get("labels", None)
+
+    elif torch.is_tensor(inputs):               # lone ids tensor
+        ids   = inputs
+        attn  = None
+        labels= None
+
+    elif isinstance(inputs, (tuple, list)):
+        if len(inputs) == 3:                    # the good case
+            ids, attn, labels = inputs
+        elif len(inputs) == 2:                  # (ids, attn) but no labels
+            ids, attn = inputs
+            labels    = None
+        else:                                   # e.g. (ids,)
+            ids      = inputs[0]
+            attn     = None
+            labels   = None
+    else:
+        raise TypeError(f"Unexpected micro-batch type: {type(inputs)}")
+
+    # 3) final sanity-check
+    return ids, attn, labels
+
 
 class EmbeddingPipe(nn.Module):
     def __init__(self, decoder):
@@ -24,8 +51,7 @@ class EmbeddingPipe(nn.Module):
         self.project_in      = decoder.project_in
 
     def forward(self, inputs):
-        inputs = _unwrap(inputs)
-        ids, attn, labels = inputs
+        ids, attn, labels = normalise_batch(inputs)
         pos_ids = get_position_ids(ids.size(1), ids.device)
         hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
         if self.project_in is not None:
@@ -37,8 +63,7 @@ class DecoderLayerPipe(nn.Module):
         super().__init__()
         self.layer = layer
     def forward(self, inputs):
-        inputs = _unwrap(inputs)
-        hidden, attn, labels = inputs
+        hidden, attn, labels = normalise_batch(inputs)
         hidden = self.layer(hidden, attention_mask=attn)[0]
         return hidden, attn, labels
 
@@ -47,8 +72,7 @@ class FinalNormPipe(nn.Module):
         super().__init__()
         self.norm = norm
     def forward(self, inputs):
-        inputs = _unwrap(inputs)
-        hidden, attn, labels = inputs
+        hidden, attn, labels = normalise_batch(inputs)
         return self.norm(hidden), attn, labels
 
 class LMHeadPipe(nn.Module):
@@ -56,8 +80,7 @@ class LMHeadPipe(nn.Module):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
-        inputs = _unwrap(inputs)
-        hidden, _attn, labels = inputs
+        hidden, _attn, labels = normalise_batch(inputs)
         logits = self.lm_head(hidden)
         if labels is not None:
             loss = F.cross_entropy(
