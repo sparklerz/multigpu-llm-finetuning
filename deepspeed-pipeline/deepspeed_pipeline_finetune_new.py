@@ -94,7 +94,8 @@ class EmbeddingPipe(nn.Module):
         if attn is None:
             attn = (ids != self.embed_tokens.padding_idx).long()
 
-        position_ids = (torch.cumsum(attn, dim=1) - 1).clamp(min=0)
+        seq_len = ids.size(1)
+        position_ids = torch.arange(seq_len, device=ids.device).unsqueeze(0).expand_as(ids)
         pos_emb = self.embed_positions(position_ids)
         hidden = self.embed_tokens(ids) + pos_emb
         if self.project_in is not None:
@@ -108,8 +109,9 @@ class DecoderLayerPipe(nn.Module):
     def forward(self, inputs):
         hidden, attn, labels = normalise_batch(inputs)
         if attn is not None and attn.dim() == 2:          # (B, S)
+            attn_bool = attn.to(dtype=torch.bool)
             attn = _prepare_4d_causal_attention_mask(
-                        attn,                                   # 2-D mask
+                        attn_bool,
                         hidden.shape[:2],                       # (batch, seq_len)
                         hidden,                                 # embeds (dtype/device)
                         past_key_values_length=0,               # no KV-cache in training
