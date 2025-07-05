@@ -5,7 +5,7 @@ import wandb
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
-from transformers.models.opt.modeling_opt import _expand_mask
+from transformers.modeling_attn_mask_utils import _expand_mask
 
 # ---------- helpers ---------------------------------------------------------
 
