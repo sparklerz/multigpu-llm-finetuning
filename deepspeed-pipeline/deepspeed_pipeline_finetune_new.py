@@ -191,7 +191,6 @@ def main(args):
     raw_ds  = raw_ds.select(range(args.start_idx, args.end_idx))
 
     tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b")
-    tok.pad_token = tok.eos_token
 
     base_model = AutoModelForCausalLM.from_pretrained(
         "facebook/opt-1.3b",
@@ -200,6 +199,10 @@ def main(args):
 
     if len(tok) != base_model.model.decoder.embed_tokens.num_embeddings:
         base_model.resize_token_embeddings(len(tok))
+
+    pad_id = tok.pad_token_id
+    base_model.config.pad_token_id = pad_id
+    base_model.model.decoder.embed_tokens.padding_idx = pad_id
 
     def tokenize(ex):
         out = tok(ex["text"],
@@ -258,9 +261,9 @@ def main(args):
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
         data_iter = (
-            (b["input_ids"].cuda(),
-             b["attention_mask"].cuda(),
-             b["labels"].cuda())
+            (b["input_ids"].cuda(non_blocking=True),
+             b["attention_mask"].cuda(non_blocking=True),
+             b["labels"].cuda(non_blocking=True))
             for b in loader
         )
         while samples_seen + args.batch_size * args.accum_steps <= samples_target:
