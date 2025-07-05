@@ -216,9 +216,8 @@ def main(args):
         torch_dtype=torch.float16
     )
 
-    if len(tok) != base_model.config.vocab_size:
-        base_model.resize_token_embeddings(len(tok))
-        base_model.tie_weights()
+    base_model.resize_token_embeddings(len(tok))
+    base_model.tie_weights()
 
     pad_id = tok.pad_token_id
     base_model.config.pad_token_id = pad_id
@@ -272,6 +271,7 @@ def main(args):
         model_parameters    = [p for p in pipe_model.parameters() if p.requires_grad],
         config              = ds_config
     )
+    dist.barrier()
 
     # --- training -----------------------------------------------------------
     global_steps   = 0
