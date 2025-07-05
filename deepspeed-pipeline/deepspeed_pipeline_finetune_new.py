@@ -91,13 +91,17 @@ def filter_empty(example):            # drop blank abstracts early
 # ---------- training loop ---------------------------------------------------
 def main(args):
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    rank      = int(os.environ["RANK"])
-    local_rank= int(os.environ["LOCAL_RANK"])
+    local_rank = int(os.environ.get("LOCAL_RANK", args.local_rank))
     torch.cuda.set_device(local_rank)
+
+    if not dist.is_initialized():
+        deepspeed.init_distributed(dist_backend="nccl")
+
+    rank = dist.get_rank()
 
     # --- WANDB (single process logs) ----------------------------------------
     if rank == 0:
-        wandb.init(project="opt1.3b-pipeline", config=vars(args))
+        wandb.init(project="opt-1.3b-ds-pipeline", config=vars(args))
 
     # --- dataset ------------------------------------------------------------
     raw_ds  = load_dataset("ash001/arxiv-abstract", split="train")
