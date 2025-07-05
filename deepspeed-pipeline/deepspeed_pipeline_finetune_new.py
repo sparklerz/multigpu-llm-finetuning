@@ -95,6 +95,10 @@ class EmbeddingPipe(nn.Module):
                 f"(vocab={self.embed_tokens.num_embeddings})"
             )
 
+        ids_cpu = ids.detach().cpu()
+        if ids_cpu.max().item() >= self.embed_tokens.weight.size(0):
+            raise ValueError(f"token id {ids_cpu.max().item()} ≥ vocab {self.embed_tokens.weight.size(0)}")
+
         if attn is None:
             attn = (ids != self.embed_tokens.padding_idx).long()
 
@@ -207,9 +211,6 @@ def main(args):
     if tok.pad_token_id is None:
         tok.add_special_tokens({'pad_token': '<pad>'})
 
-    if tok.pad_token_id is None:
-        tok.pad_token = tok.eos_token
-
     base_model = AutoModelForCausalLM.from_pretrained(
         "facebook/opt-1.3b",
         torch_dtype=torch.float16
@@ -222,10 +223,6 @@ def main(args):
     pad_id = tok.pad_token_id
     base_model.config.pad_token_id = pad_id
     base_model.model.decoder.embed_tokens.padding_idx = pad_id
-
-    with torch.no_grad(): #remove after debugging
-        dummy = torch.randint(0, len(tok), (1, 512), device="cpu")
-        _ = base_model.model.decoder.embed_tokens(dummy)
 
     def tokenize(ex):
         out = tok(ex["text"],
