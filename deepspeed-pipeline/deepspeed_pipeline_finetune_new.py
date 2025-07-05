@@ -134,6 +134,10 @@ class LMHeadPipe(nn.Module):
     def forward(self, inputs):
         hidden, _attn, labels = normalise_batch(inputs)
         logits = self.lm_head(hidden)
+        vocab = logits.size(-1)
+        if labels is not None:
+            max_id = labels[:, 1:].max().item()
+            assert max_id < vocab, f"label id {max_id} ≥ vocab {vocab}"
         if labels is not None:
             loss = F.cross_entropy(
                 logits[:, :-1].contiguous().view(-1, logits.size(-1)),
@@ -199,6 +203,7 @@ def main(args):
 
     if len(tok) != base_model.model.decoder.embed_tokens.num_embeddings:
         base_model.resize_token_embeddings(len(tok))
+        base_model.tie_weights()
 
     pad_id = tok.pad_token_id
     base_model.config.pad_token_id = pad_id
@@ -221,8 +226,6 @@ def main(args):
         shuffle     = True,
         pin_memory  = True,
     )
-
-    base_model.lm_head.weight = base_model.model.decoder.embed_tokens.weight
 
     pipe_model = build_pipeline(base_model)
 
