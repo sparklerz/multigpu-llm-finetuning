@@ -172,17 +172,18 @@ def main(args):
     t0             = time.time()
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
-        for batch in loader:
-            # pipeline expects tuple (ids, mask, labels)
-            input_ids      = batch["input_ids"].cuda()
-            attention_mask = batch["attention_mask"].cuda()
-            labels         = batch["labels"].cuda()
-
-            loss = engine((input_ids, attention_mask, labels))
-            engine.backward(loss)
-            engine.step()
-
-            samples_seen += input_ids.size(0)
+        data_iter = (
+            (b["input_ids"].cuda(),
+             b["attention_mask"].cuda(),
+             b["labels"].cuda())
+            for b in loader
+        )
+        while samples_seen + args.batch_size * args.accum_steps <= samples_target:
+            if engine.is_first_stage():
+                loss = engine.train_batch(data_iter=data_iter)
+                samples_seen += args.batch_size * args.accum_steps
+            else:
+                loss = engine.train_batch()
             global_steps += 1
 
             if rank == 0 and global_steps % 10 == 0:
