@@ -78,8 +78,14 @@ class EmbeddingPipe(nn.Module):
         else:
             raise TypeError(f"Unexpected payload type: {type(inputs)}")
 
-        if torch.is_tensor(ids): print("ids range:", ids.min().item(), ids.max().item())
+        if torch.is_tensor(ids): print("ids range:", ids.min().item(), ids.max().item()) #remove after debugging
 
+        with torch.no_grad():
+            max_id = ids.max()
+            if max_id >= self.embed_tokens.num_embeddings:
+                bad = ids[max_id == ids].flatten()[:10].tolist()
+                raise RuntimeError(f"out-of-range token(s) {bad}  ≥  {self.embed_tokens.num_embeddings}")
+        
         if ids.dtype != torch.long:
             raise RuntimeError("input_ids must be int64")
         if ids.min() < 0 or ids.max() >= self.embed_tokens.num_embeddings:
