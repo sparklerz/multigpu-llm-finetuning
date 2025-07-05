@@ -208,6 +208,7 @@ def main(args):
 # ---------- CLI -------------------------------------------------------------
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Dual-GPU DeepSpeed pipeline fine-tune OPT-1.3B")
+    p.add_argument("--local_rank",    type=int, default=-1)
     p.add_argument("--num_epochs",    type=int, required=True)
     p.add_argument("--start_idx",     type=int, required=True)
     p.add_argument("--end_idx",       type=int, required=True)
