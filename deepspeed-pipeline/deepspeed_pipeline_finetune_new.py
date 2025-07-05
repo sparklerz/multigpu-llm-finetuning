@@ -51,7 +51,42 @@ class EmbeddingPipe(nn.Module):
         self.project_in      = decoder.project_in
 
     def forward(self, inputs):
-        ids, attn, labels = normalise_batch(inputs)
+        while isinstance(inputs, (tuple, list)) and len(inputs) == 1:
+            inputs = inputs[0]
+
+        # -----------------------------------------------------------
+        # ❶ Warm-up / flush micro-batch: already hidden states
+        #    Hidden states are float16/float32, never int64
+        # -----------------------------------------------------------
+        if torch.is_tensor(inputs) and inputs.dtype != torch.long:
+            # Pass straight through: we’ve already got embeddings
+            hidden = inputs
+            attn   = None
+            labels = None
+            return hidden, attn, labels
+
+        # -----------------------------------------------------------
+        # ❷ Normal training micro-batch: do the real embedding work
+        # -----------------------------------------------------------
+        if isinstance(inputs, (tuple, list)) and len(inputs) == 3:
+            ids, attn, labels = inputs
+        elif torch.is_tensor(inputs):  # just ids
+            ids, attn, labels = inputs, None, None
+        elif isinstance(inputs, dict):
+            ids    = inputs["input_ids"]
+            attn   = inputs.get("attention_mask")
+            labels = inputs.get("labels")
+        else:
+            raise TypeError(f"Unexpected first-stage payload: {type(inputs)}")
+
+        # safety check — avoid the device-side assert
+        if ids.dtype != torch.long:
+            raise RuntimeError("input_ids must be int64 here")
+        if ids.min() < 0 or ids.max() >= self.embed_tokens.num_embeddings:
+            raise RuntimeError(
+                f"input_ids out of range: max={ids.max().item()} "
+                f"(vocab={self.embed_tokens.num_embeddings})"
+            )
         pos_ids = get_position_ids(ids.size(1), ids.device)
         hidden  = self.embed_tokens(ids) + self.embed_positions(pos_ids)
         if self.project_in is not None:
