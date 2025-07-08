@@ -60,8 +60,9 @@ class EmbeddingPipe(nn.Module):
         ids, attn, labels = normalise_batch(inputs)
         if attn is None:
             attn = (ids != self.embed_tokens.padding_idx).long()
+        attn = attn.to(torch.float16)
         hidden = self.embed_tokens(ids)
-        return hidden, attn
+        return hidden, attn, labels
 
 class DecoderLayerPipe(nn.Module):
     def __init__(self, layer, rotary_emb):
@@ -70,10 +71,11 @@ class DecoderLayerPipe(nn.Module):
         self.rotary_emb = rotary_emb
 
     def forward(self, inputs):
-        hidden, attn = inputs
+        hidden, attn, labels = inputs
         if attn is not None and attn.dim() == 2:          # (B, S)
+            attn_bool = attn.to(torch.bool)
             attn = _prepare_4d_causal_attention_mask(
-                        attn.to(torch.bool),
+                        attn_bool,
                         hidden.shape[:2],                       # (batch, seq_len)
                         hidden,                                 # embeds (dtype/device)
                         past_key_values_length=0,               # no KV-cache in training
@@ -81,23 +83,23 @@ class DecoderLayerPipe(nn.Module):
         pos_ids          = build_position_ids(hidden)
         pos_embeddings   = self.rotary_emb(hidden, pos_ids)
         hidden = self.layer(hidden, attention_mask=attn, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
-        return hidden, attn
+        return hidden, attn, labels
 
 class FinalNormPipe(nn.Module):
     def __init__(self, norm):
         super().__init__()
         self.norm = norm
     def forward(self, inputs):
-        hidden, attn = inputs
-        return self.norm(hidden), attn
+        hidden, attn, labels = inputs
+        return self.norm(hidden), attn, labels
 
 class LMHeadPipe(nn.Module):
     def __init__(self, lm_head):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
-        hidden, _attn = inputs
-        return self.lm_head(hidden)
+        hidden, _attn, labels = inputs
+        return self.lm_head(hidden), labels
 
 def build_pipeline(model):
     """Turn HF Llama into a 2-stage PipelineModule."""
@@ -175,7 +177,7 @@ def main(args):
                   truncation=True,
                   max_length=512,
                   padding="max_length")
-        out["labels"] = out["input_ids"].copy()
+        out["labels"] = [-100 if t == tok.pad_token_id else t for t in out["input_ids"]]
         return out
 
     ds = raw_ds.map(tokenize, remove_columns=raw_ds.column_names)
