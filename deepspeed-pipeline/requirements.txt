@@ -1,6 +1,6 @@
 torch
 deepspeed
-transformers==4.40.2
+transformers>=4.44.2
 datasets
 wandb
 huggingface_hub
