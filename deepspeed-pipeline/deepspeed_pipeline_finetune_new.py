@@ -206,7 +206,7 @@ def main(args):
     raw_ds  = raw_ds.filter(filter_empty)
     raw_ds  = raw_ds.select(range(args.start_idx, args.end_idx))
 
-    tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b", revision="829054a8", use_fast=True)
+    tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b", revision="main", use_fast=True)
 
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
