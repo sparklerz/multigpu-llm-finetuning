@@ -41,6 +41,8 @@ def normalise_batch(inputs):
         raise TypeError(f"Unexpected micro-batch type: {type(inputs)}")
 
     # 3) final sanity-check
+    if labels is None:
+        labels = torch.empty(0, dtype=torch.long, device=ids.device)
     return ids, attn, labels
 
 def build_position_ids(batch):
@@ -59,7 +61,7 @@ class EmbeddingPipe(nn.Module):
         if attn is None:
             attn = (ids != self.embed_tokens.padding_idx).long()
         hidden = self.embed_tokens(ids)
-        return hidden, attn, labels
+        return hidden, attn
 
 class DecoderLayerPipe(nn.Module):
     def __init__(self, layer, rotary_emb):
@@ -68,7 +70,7 @@ class DecoderLayerPipe(nn.Module):
         self.rotary_emb = rotary_emb
 
     def forward(self, inputs):
-        hidden, attn, labels = normalise_batch(inputs)
+        hidden, attn = inputs
         if attn is not None and attn.dim() == 2:          # (B, S)
             attn = _prepare_4d_causal_attention_mask(
                         attn.to(torch.bool),
@@ -79,38 +81,23 @@ class DecoderLayerPipe(nn.Module):
         pos_ids          = build_position_ids(hidden)
         pos_embeddings   = self.rotary_emb(hidden, pos_ids)
         hidden = self.layer(hidden, attention_mask=attn, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
-        return hidden, attn, labels
+        return hidden, attn
 
 class FinalNormPipe(nn.Module):
     def __init__(self, norm):
         super().__init__()
         self.norm = norm
     def forward(self, inputs):
-        hidden, attn, labels = normalise_batch(inputs)
-        return self.norm(hidden), attn, labels
+        hidden, attn = inputs
+        return self.norm(hidden), attn
 
 class LMHeadPipe(nn.Module):
     def __init__(self, lm_head):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
-        hidden, _attn, labels = normalise_batch(inputs)
-        logits = self.lm_head(hidden)
-        vocab = logits.size(-1)
-        if labels is not None:
-            max_lbl = int(labels.max().item())
-            if not -100 <= max_lbl < logits.size(-1):
-                raise RuntimeError(
-                    f"labels contain id {max_lbl} ≥ vocab_size={logits.size(-1)}"
-                )
-        if labels is not None:
-            loss = F.cross_entropy(
-                logits[:, :-1].contiguous().view(-1, logits.size(-1)),
-                labels[:, 1:].contiguous().view(-1),
-                ignore_index=-100
-            )
-            return loss
-        return None
+        hidden, _attn = inputs
+        return self.lm_head(hidden)
 
 def build_pipeline(model):
     """Turn HF Llama into a 2-stage PipelineModule."""
@@ -201,7 +188,15 @@ def main(args):
         pin_memory  = True,
     )
 
+    def shift_ce_loss(logits, labels):
+        return F.cross_entropy(
+            logits[:, :-1].contiguous().view(-1, logits.size(-1)),
+            labels[:, 1:].contiguous().view(-1),
+            ignore_index=-100,
+        )
+
     pipe_model = build_pipeline(base_model)
+    pipe_model.loss_fn = shift_ce_loss
 
     ds_config = {
         "fp16": {"enabled": True},
