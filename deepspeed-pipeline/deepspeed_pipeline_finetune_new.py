@@ -209,12 +209,15 @@ def main(args):
     tok     = AutoTokenizer.from_pretrained("facebook/opt-1.3b", revision="main", use_fast=True)
 
     if tok.pad_token_id is None:
-        tok.pad_token = tok.eos_token
+        tok.add_special_tokens({'pad_token': '<pad>'})
 
     base_model = AutoModelForCausalLM.from_pretrained(
         "facebook/opt-1.3b",
         torch_dtype=torch.float16
     )
+
+    base_model.resize_token_embeddings(len(tok))
+    base_model.tie_weights()
 
     pad_id = tok.pad_token_id
     base_model.config.pad_token_id = pad_id
