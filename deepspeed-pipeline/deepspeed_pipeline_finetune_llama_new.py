@@ -75,7 +75,7 @@ class DecoderLayerPipe(nn.Module):
                         hidden,                                 # embeds (dtype/device)
                         past_key_values_length=0,               # no KV-cache in training
                     )
-        pos_ids          = build_position_ids(ids)
+        pos_ids          = build_position_ids(hidden)
         pos_embeddings   = self.rotary_emb(hidden, pos_ids)
         hidden = self.layer(hidden, attention_mask=attn, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
         return hidden, attn, labels
