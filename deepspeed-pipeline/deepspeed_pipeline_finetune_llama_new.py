@@ -236,7 +236,7 @@ def main(args):
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
 
-        if engine.is_first_stage():
+        if engine.is_first_stage() or engine.is_last_stage():
             data_stream = (
                 (batch["input_ids"].cuda(non_blocking=True),
                 batch["attention_mask"].cuda(non_blocking=True),
@@ -249,9 +249,10 @@ def main(args):
         while True:
             # first stage pushes micro-batches; other stages just drive the pipe
             try:
-                loss = (engine.train_batch(data_iter=data_stream)
-                        if engine.is_first_stage()
-                        else engine.train_batch())
+                if engine.is_first_stage() or engine.is_last_stage():
+                    loss = engine.train_batch(data_iter=data_stream)
+                else:
+                    loss = engine.train_batch(data_iter=None)
             except StopIteration:
                 break                             # data_stream exhausted — epoch done
 
