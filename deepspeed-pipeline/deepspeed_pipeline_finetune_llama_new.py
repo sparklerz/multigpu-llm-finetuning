@@ -42,6 +42,10 @@ def normalise_batch(inputs):
     # 3) final sanity-check
     return ids, attn, labels
 
+def build_position_ids(batch):
+    bsz, seq = batch.shape[:2]
+    return torch.arange(seq, device=batch.device).unsqueeze(0).expand(bsz, -1)
+
 
 class EmbeddingPipe(nn.Module):
     def __init__(self, decoder):
@@ -57,21 +61,23 @@ class EmbeddingPipe(nn.Module):
         return hidden, attn, labels
 
 class DecoderLayerPipe(nn.Module):
-    def __init__(self, layer):
+    def __init__(self, layer, rotary_emb):
         super().__init__()
         self.layer = layer
+        self.rotary_emb = rotary_emb
+
     def forward(self, inputs):
         hidden, attn, labels = normalise_batch(inputs)
         if attn is not None and attn.dim() == 2:          # (B, S)
-            attn_bool = attn.to(dtype=torch.bool)
             attn = _prepare_4d_causal_attention_mask(
-                        attn_bool,
+                        attn.to(torch.bool),
                         hidden.shape[:2],                       # (batch, seq_len)
                         hidden,                                 # embeds (dtype/device)
                         past_key_values_length=0,               # no KV-cache in training
                     )
-            attn = attn.to(dtype=torch.bool)
-        hidden = self.layer(hidden, attention_mask=attn)[0]
+        pos_ids          = build_position_ids(ids)
+        pos_embeddings   = self.rotary_emb(hidden, pos_ids)
+        hidden = self.layer(hidden, attention_mask=attn, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
         return hidden, attn, labels
 
 class FinalNormPipe(nn.Module):
@@ -108,6 +114,7 @@ class LMHeadPipe(nn.Module):
 def build_pipeline(model):
     """Turn HF Llama into a 2-stage PipelineModule."""
     dec = model.model
+    rope = dec.layers[0].self_attn.rotary_emb
     n_layers = len(dec.layers)
     split_point  = n_layers // 2
     layers = []
@@ -116,11 +123,11 @@ def build_pipeline(model):
     # stage-1: embeddings + n_layers // 2 decoder layers
     layers.append(LayerSpec(EmbeddingPipe, dec))
     for l in dec.layers[:split_point]:
-        layers.append(LayerSpec(DecoderLayerPipe, l))
+        layers.append(LayerSpec(DecoderLayerPipe, l, rope))
 
     # stage-2: remaining decoder layers + final norm + lm_head + loss
     for l in dec.layers[split_point:]:
-        layers.append(LayerSpec(DecoderLayerPipe, l))
+        layers.append(LayerSpec(DecoderLayerPipe, l, rope))
     layers.append(LayerSpec(FinalNormPipe, norm_layer))
     layers.append(LayerSpec(LMHeadPipe, model.lm_head))
 
