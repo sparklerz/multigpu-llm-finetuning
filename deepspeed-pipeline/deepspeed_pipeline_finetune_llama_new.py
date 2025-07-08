@@ -7,6 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from itertools import repeat
+from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 
 # ---------- helpers ---------------------------------------------------------
 
@@ -114,7 +115,11 @@ class LMHeadPipe(nn.Module):
 def build_pipeline(model):
     """Turn HF Llama into a 2-stage PipelineModule."""
     dec = model.model
-    rope = dec.layers[0].self_attn.rotary_emb
+    try:
+        rope = dec.layers[0].self_attn.rotary_emb
+    except AttributeError:
+        rope = LlamaRotaryEmbedding(model.config)
+        
     n_layers = len(dec.layers)
     split_point  = n_layers // 2
     layers = []
