@@ -246,9 +246,9 @@ def main(args):
         config              = ds_config
     )
     torch.cuda.synchronize()
-    print(f"[rank {rank}] entering pre-save barrier", flush=True)
+    print(f"[rank {rank}] entering pre-train barrier", flush=True)
     dist.barrier()
-    print(f"[rank {rank}] left pre-save barrier", flush=True)
+    print(f"[rank {rank}] left pre-train barrier", flush=True)
 
     # --- training -----------------------------------------------------------
     global_steps   = 0
@@ -268,6 +268,7 @@ def main(args):
         else:
             data_stream = repeat(None)            # dummy iterator – never consumed
 
+        done = torch.zeros(1, dtype=torch.bool, device="cuda")
         while True:
             # first stage pushes micro-batches; other stages just drive the pipe
             try:
@@ -278,19 +279,24 @@ def main(args):
             except StopIteration:
                 break                             # data_stream exhausted — epoch done
 
+            if engine.is_first_stage():
+                samples_seen += args.batch_size * args.accum_steps
+                done.fill_(samples_seen >= samples_target)
 
-            samples_seen += args.batch_size * args.accum_steps
+            dist.broadcast(done, src=0)
+            if done.item():
+                break
 
             global_steps += 1
-            if rank == 0:
+            if engine.is_first_stage() and rank == 0:
                 wandb.log({"train_loss": loss.item(),
                            "samples_seen": samples_seen,
                            "step": global_steps})
 
-            if samples_seen >= samples_target:
-                break
-        if samples_seen >= samples_target:
-            break
+    torch.cuda.synchronize()
+    print(f"[rank {rank}] waiting end-of-training barrier", flush=True)
+    dist.barrier()
+    print(f"[rank {rank}] all ranks finished training", flush=True)
 
     # --- finish -------------------------------------------------------------
     elapsed = time.time() - t0
