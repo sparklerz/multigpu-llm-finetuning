@@ -286,19 +286,21 @@ def main(args):
             break
 
     # --- finish -------------------------------------------------------------
+    elapsed = time.time() - t0
     if rank == 0:
-        elapsed = time.time() - t0
         wandb.log({"total_training_time_sec": elapsed})
         print(f"Finished slice {args.start_idx}-{args.end_idx} in {elapsed/60:.2f} min")
-        dist.destroy_process_group()
-        # push tokenizer + final engine weights if desired
-        if args.hf_repo:
+    if args.hf_repo:
+        engine.save_checkpoint(".", tag="pipeline_last")
+        if rank == 0:
+            # push tokenizer + final engine weights if desired
             tok.push_to_hub(args.hf_repo)
-            engine.save_checkpoint(".", tag="pipeline_last")
             from huggingface_hub import HfApi
             HfApi().upload_folder(folder_path="pipeline_last",
                                   repo_id=args.hf_repo,
                                   repo_type="model")
+    dist.barrier()
+    dist.destroy_process_group()
 
 # ---------- CLI -------------------------------------------------------------
 if __name__ == "__main__":
