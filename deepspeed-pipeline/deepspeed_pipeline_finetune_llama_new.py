@@ -268,27 +268,18 @@ def main(args):
         else:
             data_stream = repeat(None)            # dummy iterator – never consumed
 
-        done = torch.zeros(1, dtype=torch.bool, device="cuda")
         while True:
             # first stage pushes micro-batches; other stages just drive the pipe
             try:
-                if engine.is_first_stage() or engine.is_last_stage():
-                    loss = engine.train_batch(data_iter=data_stream)
-                else:
-                    loss = engine.train_batch(data_iter=None)
+                loss = engine.train_batch(data_iter=data_stream)
             except StopIteration:
                 break                             # data_stream exhausted — epoch done
 
             if engine.is_first_stage():
                 samples_seen += args.batch_size * args.accum_steps
-                done.fill_(samples_seen >= samples_target)
 
-            dist.broadcast(done, src=0)
-            if done.item():
-                break
-
-            global_steps += 1
             if engine.is_first_stage() and rank == 0:
+                global_steps += 1
                 wandb.log({"train_loss": loss.item(),
                            "samples_seen": samples_seen,
                            "step": global_steps})
