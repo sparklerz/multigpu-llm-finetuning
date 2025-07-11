@@ -258,7 +258,7 @@ def main(args):
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
 
-        if engine.is_first_stage():
+        if engine.is_first_stage() or engine.is_last_stage():
             data_stream = (
                 (batch["input_ids"].cuda(non_blocking=True),
                 batch["attention_mask"].cuda(non_blocking=True),
