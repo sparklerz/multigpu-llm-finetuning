@@ -75,6 +75,7 @@ class DecoderLayerPipe(nn.Module):
 
     def forward(self, inputs):
         hidden, attn, labels = inputs
+        mask4d = None
         if attn is not None and attn.dim() == 2:          # (B, S)
             attn.requires_grad_()
             mask4d = _prepare_4d_causal_attention_mask(
@@ -274,7 +275,7 @@ def main(args):
             samples_seen += args.batch_size * args.accum_steps
 
             global_steps += 1
-            if rank == 0 and global_steps % 10 == 0:
+            if rank == 0:
                 wandb.log({"train_loss": loss.item(),
                            "samples_seen": samples_seen,
                            "step": global_steps})
@@ -289,6 +290,7 @@ def main(args):
         elapsed = time.time() - t0
         wandb.log({"total_training_time_sec": elapsed})
         print(f"Finished slice {args.start_idx}-{args.end_idx} in {elapsed/60:.2f} min")
+        dist.destroy_process_group()
         # push tokenizer + final engine weights if desired
         if args.hf_repo:
             tok.push_to_hub(args.hf_repo)
