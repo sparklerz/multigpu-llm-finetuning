@@ -6,7 +6,6 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
-from itertools import repeat
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 
 # ---------- helpers ---------------------------------------------------------
@@ -162,11 +161,6 @@ def main(args):
     if rank == 0:
         wandb.init(project="llama-1b-ds-pipeline", config=vars(args))
 
-    # --- dataset ------------------------------------------------------------
-    raw_ds  = load_dataset("ash001/arxiv-abstract", split="train")
-    raw_ds  = raw_ds.filter(filter_empty)
-    raw_ds  = raw_ds.select(range(args.start_idx, args.end_idx))
-
     tok     = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", use_fast=True)
 
     if tok.pad_token_id is None:
@@ -183,23 +177,31 @@ def main(args):
     base_model.config.pad_token_id = pad_id
     base_model.model.embed_tokens.padding_idx = pad_id
 
-    def tokenize(ex):
-        out = tok(ex["text"],
-                  truncation=True,
-                  max_length=512,
-                  padding="max_length")
-        out["labels"] = [-100 if t == tok.pad_token_id else t for t in out["input_ids"]]
-        return out
+    # --- dataset ------------------------------------------------------------
+    if rank == 0:
+        raw_ds  = load_dataset("ash001/arxiv-abstract", split="train")
+        raw_ds  = raw_ds.filter(filter_empty)
+        raw_ds  = raw_ds.select(range(args.start_idx, args.end_idx))
 
-    ds = raw_ds.map(tokenize, remove_columns=raw_ds.column_names)
-    ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+        def tokenize(ex):
+            out = tok(ex["text"],
+                    truncation=True,
+                    max_length=512,
+                    padding="max_length")
+            out["labels"] = [-100 if t == tok.pad_token_id else t for t in out["input_ids"]]
+            return out
 
-    loader = torch.utils.data.DataLoader(
-        ds,
-        batch_size  = args.batch_size,   # micro-batch per GPU
-        shuffle     = True,
-        pin_memory  = True,
-    )
+        ds = raw_ds.map(tokenize, remove_columns=raw_ds.column_names)
+        ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+
+        loader = torch.utils.data.DataLoader(
+            ds,
+            batch_size  = args.batch_size,   # micro-batch per GPU
+            shuffle     = True,
+            pin_memory  = True,
+        )
+    else:
+        loader = None
 
     def shift_ce_loss(logits, labels):
         return F.cross_entropy(
@@ -258,7 +260,7 @@ def main(args):
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
 
-        if engine.is_first_stage() or engine.is_last_stage():
+        if engine.is_first_stage():
             data_stream = (
                 (batch["input_ids"].cuda(non_blocking=True),
                 batch["attention_mask"].cuda(non_blocking=True),
@@ -266,23 +268,25 @@ def main(args):
                 for batch in loader
             )
         else:
-            data_stream = repeat(None)            # dummy iterator – never consumed
+            data_stream = None            # dummy iterator – never consumed
 
         while True:
             # first stage pushes micro-batches; other stages just drive the pipe
             try:
-                loss = engine.train_batch(data_iter=data_stream)
+                if engine.is_first_stage():
+                    loss = engine.train_batch(data_iter=data_stream)
+                else:
+                    loss = engine.train_batch()
             except StopIteration:
                 break                             # data_stream exhausted — epoch done
 
             if engine.is_first_stage():
                 samples_seen += args.batch_size * args.accum_steps
-
-            if engine.is_first_stage() and rank == 0:
-                global_steps += 1
-                wandb.log({"train_loss": loss.item(),
-                           "samples_seen": samples_seen,
-                           "step": global_steps})
+                if rank == 0:
+                    global_steps += 1
+                    wandb.log({"train_loss": loss.item(),
+                            "samples_seen": samples_seen,
+                            "step": global_steps})
 
     torch.cuda.synchronize()
     print(f"[rank {rank}] waiting end-of-training barrier", flush=True)
