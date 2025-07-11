@@ -207,9 +207,15 @@ def main(args):
     pipe_model.loss_fn = shift_ce_loss
 
     ds_config = {
-        "fp16": {"enabled": True},
+        "fp16": {
+            "enabled": True,
+            "loss_scale": 1024,
+            "hysteresis": 2,
+            "loss_scale_window": 500
+        },
         "train_micro_batch_size_per_gpu": args.batch_size,
         "gradient_accumulation_steps": args.accum_steps,
+        "gradient_clipping": 1.0,
         "pipeline":      {"seed_layers": False},
         "pipeline_parallel_size": 2,
         "zero_optimization": {
