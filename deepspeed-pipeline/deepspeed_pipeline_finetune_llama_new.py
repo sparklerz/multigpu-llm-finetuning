@@ -76,16 +76,16 @@ class DecoderLayerPipe(nn.Module):
     def forward(self, inputs):
         hidden, attn, labels = inputs
         if attn is not None and attn.dim() == 2:          # (B, S)
-            attn_bool = attn.to(torch.bool)
-            attn = _prepare_4d_causal_attention_mask(
-                        attn_bool,
+            attn.requires_grad_()
+            mask4d = _prepare_4d_causal_attention_mask(
+                        attn.to(torch.bool),
                         hidden.shape[:2],                       # (batch, seq_len)
                         hidden,                                 # embeds (dtype/device)
                         past_key_values_length=0,               # no KV-cache in training
                     )
         pos_ids          = build_position_ids(hidden)
         pos_embeddings   = self.rotary_emb(hidden, pos_ids)
-        hidden = self.layer(hidden, attention_mask=attn, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
+        hidden = self.layer(hidden, attention_mask=mask4d, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
         return hidden, attn, labels
 
 class FinalNormPipe(nn.Module):
