@@ -99,7 +99,7 @@ class LMHeadPipe(nn.Module):
         self.lm_head = lm_head
     def forward(self, inputs):
         hidden, _attn, labels = inputs
-        return self.lm_head(hidden), labels
+        return self.lm_head(hidden)
 
 def build_pipeline(model):
     """Turn HF Llama into a 2-stage PipelineModule."""
