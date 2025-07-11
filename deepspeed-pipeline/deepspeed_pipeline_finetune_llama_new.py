@@ -101,9 +101,10 @@ class LMHeadPipe(nn.Module):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
-        hidden, _attn, labels_f = inputs
-        labels   = labels_f.to(torch.long)
-        logits   = self.lm_head(hidden)
+        hidden, attn, labels_f = inputs
+        logits = self.lm_head(hidden)
+        dummy = (attn.float().sum() + labels_f.sum()) * 0.0
+        logits = logits + dummy
         return logits
 
 def build_pipeline(model):
