@@ -6,7 +6,6 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from deepspeed.pipe import PipelineModule, LayerSpec
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
-from itertools import repeat
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 
 # ---------- helpers ---------------------------------------------------------
@@ -258,7 +257,7 @@ def main(args):
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
 
-        if engine.is_first_stage() or engine.is_last_stage():
+        if engine.is_first_stage():
             data_stream = (
                 (batch["input_ids"].cuda(non_blocking=True),
                 batch["attention_mask"].cuda(non_blocking=True),
@@ -266,7 +265,7 @@ def main(args):
                 for batch in loader
             )
         else:
-            data_stream = repeat(None)            # dummy iterator – never consumed
+            data_stream = None            # dummy iterator – never consumed
 
         while True:
             # first stage pushes micro-batches; other stages just drive the pipe
@@ -275,10 +274,8 @@ def main(args):
             except StopIteration:
                 break                             # data_stream exhausted — epoch done
 
-            if engine.is_first_stage():
-                samples_seen += args.batch_size * args.accum_steps
-
             if engine.is_first_stage() and rank == 0:
+                samples_seen += args.batch_size * args.accum_steps
                 global_steps += 1
                 wandb.log({"train_loss": loss.item(),
                            "samples_seen": samples_seen,
@@ -293,6 +290,7 @@ def main(args):
     elapsed = time.time() - t0
     if rank == 0:
         wandb.log({"total_training_time_sec": elapsed})
+        wandb.finish()
         print(f"Finished slice {args.start_idx}-{args.end_idx} in {elapsed/60:.2f} min")
     if args.hf_repo:
         torch.cuda.synchronize()
