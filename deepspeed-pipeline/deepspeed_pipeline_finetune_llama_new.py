@@ -1,4 +1,4 @@
-import os, math, time, argparse, torch, torch.nn as nn, torch.distributed as dist
+import os, math, time, argparse, torch, torch.nn as nn, torch.distributed as dist, sys, datetime as dt
 import torch.nn.functional as F
 import deepspeed
 import wandb
@@ -154,6 +154,10 @@ def main(args):
 
     rank = dist.get_rank()
 
+    log_path = f"rank{rank}.log"
+    sys.stdout = open(log_path, "a", buffering=1)
+    print(f"\n=== start {dt.datetime.now()} ===", flush=True)
+
     # --- WANDB (single process logs) ----------------------------------------
     if rank == 0:
         wandb.init(project="llama-1b-ds-pipeline", config=vars(args))
@@ -241,7 +245,10 @@ def main(args):
         model_parameters    = [p for p in pipe_model.parameters() if p.requires_grad],
         config              = ds_config
     )
+    torch.cuda.synchronize()
+    print(f"[rank {rank}] entering pre-save barrier", flush=True)
     dist.barrier()
+    print(f"[rank {rank}] left pre-save barrier", flush=True)
 
     # --- training -----------------------------------------------------------
     global_steps   = 0
@@ -297,9 +304,17 @@ def main(args):
         engine.save_checkpoint(".", tag="pipeline_last")
         torch.cuda.synchronize()
         print(f"[rank {rank}] save done in {time.time()-t0:.1f}s", flush=True)
-        print(f"[rank {rank}] entering barrier", flush=True)
+
+        try:
+            from pathlib import Path
+            sz = sum(p.stat().st_size for p in Path("pipeline_last").glob("**/*"))/1e9
+            print(f"[rank {rank}] checkpoint size on disk: {sz:.2f} GB", flush=True)
+        except Exception as e:
+            print(f"[rank {rank}] size check failed: {e}", flush=True)
+
+        print(f"[rank {rank}] entering post-save barrier", flush=True)
         dist.barrier()
-        print(f"[rank {rank}] exited barrier", flush=True)
+        print(f"[rank {rank}] exited post-save barrier", flush=True)
 
         if rank == 0 and os.getenv("HF_TOKEN"):
             print("[rank 0] uploading to HF…", flush=True)
