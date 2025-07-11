@@ -267,16 +267,11 @@ def main(args):
         else:
             data_stream = None
 
-        while True:
+        for _ in range(len(loader)):
             # first stage pushes micro-batches; other stages just drive the pipe
-            try:
-                loss = (
-                    engine.train_batch(data_iter=data_stream)
+            loss = (engine.train_batch(data_iter=data_stream)
                     if engine.is_first_stage()
-                    else engine.train_batch()
-                )
-            except StopIteration:
-                break
+                    else engine.train_batch())
 
             if engine.is_first_stage() and rank == 0:
                 samples_seen += args.batch_size * args.accum_steps
