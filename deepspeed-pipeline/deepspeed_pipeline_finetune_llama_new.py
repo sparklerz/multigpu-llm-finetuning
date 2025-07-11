@@ -292,14 +292,19 @@ def main(args):
         print(f"Finished slice {args.start_idx}-{args.end_idx} in {elapsed/60:.2f} min")
     if args.hf_repo:
         engine.save_checkpoint(".", tag="pipeline_last")
-        if rank == 0:
+        dist.barrier()
+        
+        if rank == 0 and os.getenv("HF_TOKEN"):
             # push tokenizer + final engine weights if desired
-            tok.push_to_hub(args.hf_repo)
+            tok.push_to_hub(args.hf_repo, token=os.getenv("HF_TOKEN"))
             from huggingface_hub import HfApi
             HfApi().upload_folder(folder_path="pipeline_last",
                                   repo_id=args.hf_repo,
-                                  repo_type="model")
-    dist.barrier()
+                                  repo_type="model",
+                                  token=os.getenv("HF_TOKEN"),)
+        elif rank == 0:
+            print("Skipping push_to_hub: no write token found.")
+
     dist.destroy_process_group()
 
 # ---------- CLI -------------------------------------------------------------
