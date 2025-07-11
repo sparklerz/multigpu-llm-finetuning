@@ -291,10 +291,18 @@ def main(args):
         wandb.log({"total_training_time_sec": elapsed})
         print(f"Finished slice {args.start_idx}-{args.end_idx} in {elapsed/60:.2f} min")
     if args.hf_repo:
+        torch.cuda.synchronize()
+        t0 = time.time()
+        print(f"[rank {rank}] starting save…", flush=True);
         engine.save_checkpoint(".", tag="pipeline_last")
+        torch.cuda.synchronize()
+        print(f"[rank {rank}] save done in {time.time()-t0:.1f}s", flush=True)
+        print(f"[rank {rank}] entering barrier", flush=True)
         dist.barrier()
-        
+        print(f"[rank {rank}] exited barrier", flush=True)
+
         if rank == 0 and os.getenv("HF_TOKEN"):
+            print("[rank 0] uploading to HF…", flush=True)
             # push tokenizer + final engine weights if desired
             tok.push_to_hub(args.hf_repo, token=os.getenv("HF_TOKEN"))
             from huggingface_hub import HfApi
@@ -302,8 +310,9 @@ def main(args):
                                   repo_id=args.hf_repo,
                                   repo_type="model",
                                   token=os.getenv("HF_TOKEN"),)
+            print("[rank 0] upload complete", flush=True)
         elif rank == 0:
-            print("Skipping push_to_hub: no write token found.")
+            print("[rank 0] Skipping push_to_hub: no write token found.", flush=True)
 
     dist.destroy_process_group()
 
