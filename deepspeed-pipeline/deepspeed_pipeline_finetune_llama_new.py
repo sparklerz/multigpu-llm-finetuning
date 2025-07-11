@@ -60,7 +60,10 @@ class EmbeddingPipe(nn.Module):
         ids, attn, labels = normalise_batch(inputs)
         if attn is None:
             attn = (ids != self.embed_tokens.padding_idx).long()
-        attn = attn.to(torch.float16)
+
+        attn   = attn.to(torch.float16).requires_grad_()
+        labels = labels.to(torch.float32).requires_grad_()
+
         hidden = self.embed_tokens(ids)
         return hidden, attn, labels
 
@@ -98,8 +101,10 @@ class LMHeadPipe(nn.Module):
         super().__init__()
         self.lm_head = lm_head
     def forward(self, inputs):
-        hidden, _attn, labels = inputs
-        return self.lm_head(hidden)
+        hidden, _attn, labels_f = inputs
+        labels   = labels_f.to(torch.long)
+        logits   = self.lm_head(hidden)
+        return logits
 
 def build_pipeline(model):
     """Turn HF Llama into a 2-stage PipelineModule."""
