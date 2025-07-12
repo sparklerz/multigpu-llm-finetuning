@@ -297,7 +297,7 @@ def main(args):
             wandb.log({"epoch": epoch,
                        "epoch_loss": avg_loss,
                        "epoch_perplexity": math.exp(avg_loss)})
-            print(f"[E{epoch}] mean loss: {avg_loss:.4f}  (ppl ≈ {math.exp(avg_loss):.1f})", flush=True)
+            print(f"[Epoch {epoch}] mean loss: {avg_loss:.4f}  (ppl ≈ {math.exp(avg_loss):.1f})", flush=True)
 
     torch.cuda.synchronize()
     print(f"[rank {rank}] waiting end-of-training barrier", flush=True)
