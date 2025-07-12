@@ -162,6 +162,9 @@ def main(args):
     # --- WANDB (single process logs) ----------------------------------------
     if rank == 0:
         wandb.init(project="llama-1b-ds-pipeline", config=vars(args))
+        wandb.define_metric("epoch", hidden=True)
+        wandb.define_metric("epoch_loss",       step_metric="epoch")
+        wandb.define_metric("epoch_perplexity", step_metric="epoch")
 
     # --- dataset ------------------------------------------------------------
     raw_ds  = load_dataset("ash001/arxiv-abstract", split="train")
@@ -275,17 +278,26 @@ def main(args):
 
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
 
+        epoch_loss = 0.0
         for _ in range(steps_per_epoch):
             loss = engine.train_batch()
 
             if engine.is_first_stage():
                 samples_seen += args.batch_size * args.accum_steps
+                epoch_loss   += loss.item()
 
             if engine.is_first_stage() and rank == 0:
                 global_steps += 1
                 wandb.log({"train_loss": loss.item(),
                            "samples_seen": samples_seen,
                            "step": global_steps})
+
+        if engine.is_first_stage() and rank == 0:
+            avg_loss = epoch_loss / steps_per_epoch
+            wandb.log({"epoch": epoch,
+                       "epoch_loss": avg_loss,
+                       "epoch_perplexity": math.exp(avg_loss)})
+            print(f"[E{epoch}] mean loss: {avg_loss:.4f}  (ppl ≈ {math.exp(avg_loss):.1f})", flush=True)
 
     torch.cuda.synchronize()
     print(f"[rank {rank}] waiting end-of-training barrier", flush=True)
