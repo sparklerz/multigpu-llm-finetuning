@@ -8,6 +8,7 @@ from deepspeed.pipe import PipelineModule, LayerSpec
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from itertools import repeat
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
+from deepspeed.utils import RepeatingLoader
 
 # ---------- helpers ---------------------------------------------------------
 
@@ -201,6 +202,16 @@ def main(args):
         pin_memory  = True,
     )
 
+    def tupled_loader(dl):
+        for batch in dl:
+            yield (
+                batch["input_ids"].cuda(non_blocking=True),
+                batch["attention_mask"].cuda(non_blocking=True),
+                batch["labels"].cuda(non_blocking=True),
+            )
+
+    pipe_loader = RepeatingLoader(tupled_loader(loader))
+
     def shift_ce_loss(logits, labels):
         return F.cross_entropy(
             logits[:, :-1].contiguous().view(-1, logits.size(-1)),
@@ -247,7 +258,7 @@ def main(args):
     )
 
     if engine.is_first_stage() or engine.is_last_stage():
-        engine.set_dataloader(loader)
+        engine.set_dataloader(pipe_loader)
 
     torch.cuda.synchronize()
     print(f"[rank {rank}] entering pre-train barrier", flush=True)
@@ -260,14 +271,12 @@ def main(args):
     samples_seen   = 0
     t0             = time.time()
 
+    steps_per_epoch = math.ceil((args.end_idx - args.start_idx) / (args.batch_size * args.accum_steps))
+
     for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
 
-        while True:
-            # first stage pushes micro-batches; other stages just drive the pipe
-            try:
-                loss = engine.train_batch()
-            except StopIteration:
-                break                             # data_stream exhausted — epoch done
+        for _ in range(steps_per_epoch):
+            loss = engine.train_batch()
 
             if engine.is_first_stage():
                 samples_seen += args.batch_size * args.accum_steps
