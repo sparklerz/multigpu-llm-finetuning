@@ -205,15 +205,20 @@ def main(args):
         pin_memory  = True,
     )
 
-    def tupled_loader(dl):
-        for batch in dl:
-            yield (
-                batch["input_ids"].cuda(non_blocking=True),
-                batch["attention_mask"].cuda(non_blocking=True),
-                batch["labels"].cuda(non_blocking=True),
-            )
+    class DeviceLoader:
+        def __init__(self, dataloader, device):
+            self.dataloader = dataloader
+            self.device     = device
 
-    pipe_loader = RepeatingLoader(tupled_loader(loader))
+        def __iter__(self):
+            for batch in self.dataloader:
+                yield (
+                    batch["input_ids"].to(self.device, non_blocking=True),
+                    batch["attention_mask"].to(self.device, non_blocking=True),
+                    batch["labels"].to(self.device, non_blocking=True),
+                )
+
+    pipe_loader = RepeatingLoader(DeviceLoader(loader, local_rank))
 
     def shift_ce_loss(logits, labels):
         return F.cross_entropy(
