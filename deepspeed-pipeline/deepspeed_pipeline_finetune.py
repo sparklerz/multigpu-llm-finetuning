@@ -1,499 +1,364 @@
-#!/usr/bin/env python
-import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128,garbage_collection_threshold:0.6"
-import time
-import torch
+import os, math, time, argparse, torch, torch.nn as nn, torch.distributed as dist, sys, datetime as dt
 import torch.nn.functional as F
-import torch.distributed as dist
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data._utils.collate import default_collate
-from torch.nn import CrossEntropyLoss
-
 import deepspeed
-from deepspeed.pipe import PipelineModule
-from transformers.models.bloom.modeling_bloom import build_alibi_tensor
-
-from transformers import (
-    AutoTokenizer,
-    AutoConfig,
-    AutoModelForCausalLM
-)
-from datasets import load_dataset
-
 import wandb
-from huggingface_hub import HfApi, hf_hub_download
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from deepspeed.pipe import PipelineModule, LayerSpec
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
+from itertools import repeat
+from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
+from deepspeed.utils import RepeatingLoader
 
-# ───────────────────────────────────────────────────────────────────────────────
-#  1. CONFIGURATION / HYPERPARAMETERS
-# ───────────────────────────────────────────────────────────────────────────────
+# ---------- helpers ---------------------------------------------------------
 
-MODEL_NAME = "bigscience/bloomz-1b7"
-DATASET_NAME = "ash001/arxiv-abstract"
-TARGET_SEQ_LEN = 64  # max token length per example
-WARMUP_STEPS = 100
-LEARNING_RATE = 1e-5
+def normalise_batch(inputs):
+    # 1) peel off DeepSpeed’s wrapper(s)
+    while isinstance(inputs, (tuple, list)) and len(inputs) == 1:
+        inputs = inputs[0]
 
-# ───────────────────────────────────────────────────────────────────────────────
-#  2. ARGS PARSING
-# ───────────────────────────────────────────────────────────────────────────────
+    # 2) convert to canonical (ids, attn, labels) --------------------------
+    if isinstance(inputs, dict):                # dict from a DataLoader
+        ids   = inputs["input_ids"]
+        attn  = inputs.get("attention_mask", None)
+        labels= inputs.get("labels", None)
 
-def parse_args():
-    import argparse
-    p = argparse.ArgumentParser(
-        description="DeepSpeed Pipeline Parallelism: Fine-tune Bloom with 2 GPUs + ZeRO1"
-    )
-    p.add_argument("--local_rank", type=int, default=0,
-                   help="(DeepSpeed) Local rank, passed automatically")
-    p.add_argument("--num_epochs", type=int, required=True,
-                   help="Number of epochs to run")
-    p.add_argument("--start_idx", type=int, required=True,
-                   help="Dataset start index (inclusive)")
-    p.add_argument("--end_idx", type=int, required=True,
-                   help="Dataset end index (exclusive)")
-    p.add_argument("--batch_size", type=int, default=1,
-                   help="Micro-batch size per GPU (actual global batch = bs_per_gpu * world_size * accum_steps)")
-    p.add_argument("--accum_steps", type=int, default=1,
-                   help="Gradient accumulation steps (micro-batches per step)")
-    p.add_argument("--initial_epoch", type=int, default=0,
-                   help="Epoch number to resume from (overrides checkpoint epoch in resume_file)")
-    p.add_argument("--hf_repo", type=str, required=True,
-                   help="Hugging Face repo ID to push checkpoints, e.g. 'username/my-bloom-1.7b'")
-    p.add_argument("--resume_file", type=str, default=None,
-                   help="Checkpoint filename in the HF repo, e.g. 'checkpoint_epoch_1.pt'")
+    elif torch.is_tensor(inputs):               # lone ids tensor
+        ids   = inputs
+        attn  = None
+        labels= None
 
-    # Any extra arguments after “--” in `deepspeed … script.py -- [args]` will land here.
-    args = p.parse_args()
-    return args
+    elif isinstance(inputs, (tuple, list)):
+        if len(inputs) == 3:                    # the good case
+            ids, attn, labels = inputs
+        elif len(inputs) == 2:                  # (ids, attn) but no labels
+            ids, attn = inputs
+            labels    = None
+        else:                                   # e.g. (ids,)
+            ids      = inputs[0]
+            attn     = None
+            labels   = None
+    else:
+        raise TypeError(f"Unexpected micro-batch type: {type(inputs)}")
 
-# ───────────────────────────────────────────────────────────────────────────────
-#  3. SET UP DISTRIBUTED ENVIRONMENT (DeepSpeed)
-# ───────────────────────────────────────────────────────────────────────────────
+    # 3) final sanity-check
+    if labels is None:
+        labels = torch.empty(0, dtype=torch.long, device=ids.device)
+    return ids, attn, labels
 
-def ds_setup():
-    deepspeed.init_distributed()  # calls torch.distributed.init_process_group under the hood
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    world_size = torch.distributed.get_world_size()
-    torch.cuda.set_device(local_rank)
-    return local_rank, world_size
+def build_position_ids(batch):
+    bsz, seq = batch.shape[:2]
+    return torch.arange(seq, device=batch.device).unsqueeze(0).expand(bsz, -1)
 
-class PassLabels(nn.Module):
-    """Let a normal layer travel through the pipeline carrying labels with it."""
-    def __init__(self, layer):
+
+class EmbeddingPipe(nn.Module):
+    def __init__(self, decoder):
+        super().__init__()
+        self.embed_tokens    = decoder.embed_tokens
+        self.hidden_size = decoder.embed_tokens.embedding_dim
+
+    def forward(self, inputs):
+        ids, attn, labels = normalise_batch(inputs)
+        if attn is None:
+            attn = (ids != self.embed_tokens.padding_idx).long()
+
+        attn   = attn.to(torch.float16).requires_grad_()
+        labels = labels.to(torch.float32).requires_grad_()
+
+        hidden = self.embed_tokens(ids)
+        return hidden, attn, labels
+
+class DecoderLayerPipe(nn.Module):
+    def __init__(self, layer, rotary_emb):
         super().__init__()
         self.layer = layer
+        self.rotary_emb = rotary_emb
 
-    def forward(self, *args):
-        packed = args
-        while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
-            packed = packed[0]
-        if len(packed) == 2:
-            hidden, labels = packed
-            out = self.layer(hidden)
-        elif len(packed) == 4:
-            # every transformer block gives (hidden, labels, alibi, pad_mask)
-            hidden, labels, alibi, attention_mask = packed
-            # final layer-norm only takes hidden
-            if isinstance(self.layer, nn.LayerNorm):
-                out = self.layer(hidden)
-            else:
-                out = self.layer(hidden, attention_mask=attention_mask, alibi=alibi)
-        else:
-            raise ValueError(f"Unexpected number of elements in packed: {len(packed)}")
-        if isinstance(out, tuple):  # drop any extras (e.g. past_key_values)
-            out = out[0]
-        # carry everything forward
-        if len(packed) == 2:
-            return (out, labels)
-        else:
-            return (out, labels, alibi, attention_mask)
+    def forward(self, inputs):
+        hidden, attn, labels = inputs
+        mask4d = None
+        if attn is not None and attn.dim() == 2:          # (B, S)
+            attn.requires_grad_()
+            mask4d = _prepare_4d_causal_attention_mask(
+                        attn.to(torch.bool),
+                        hidden.shape[:2],                       # (batch, seq_len)
+                        hidden,                                 # embeds (dtype/device)
+                        past_key_values_length=0,               # no KV-cache in training
+                    )
+        pos_ids          = build_position_ids(hidden)
+        pos_embeddings   = self.rotary_emb(hidden, pos_ids)
+        hidden = self.layer(hidden, attention_mask=mask4d, position_ids = pos_ids, position_embeddings = pos_embeddings,)[0]
+        return hidden, attn, labels
 
-class EmbeddingBlock(nn.Module):
-    def __init__(self, embed_tokens, n_head):
+class FinalNormPipe(nn.Module):
+    def __init__(self, norm):
         super().__init__()
-        self.embed = embed_tokens               # HF embedding layer
-        self.n_head = n_head
+        self.norm = norm
+    def forward(self, inputs):
+        hidden, attn, labels = inputs
+        return self.norm(hidden), attn, labels
 
-    def forward(self, *args):
-        # args must be (input_ids, labels, alibi, attention_mask)
-        input_ids, labels, alibi, attention_mask = args
-        pad_mask = ~attention_mask.bool()
-        hidden   = self.embed(input_ids)
-        return (hidden, labels, alibi, pad_mask)
-
-class LMHeadLossBlock(nn.Module):
-    def __init__(self, lm_head, ignore_index=-100):
+class LMHeadPipe(nn.Module):
+    def __init__(self, lm_head):
         super().__init__()
         self.lm_head = lm_head
-        self.loss_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
-
-    def forward(self, *args):
-        packed = args
-        while len(packed) == 1 and isinstance(packed[0], (tuple, list)):
-            packed = packed[0]
-        if len(packed) == 4:
-            hidden, labels, *_ = packed
-        elif len(packed) == 2:
-            hidden, labels = packed
-        else:
-            raise ValueError(f"Unexpected number of elements in packed: {len(packed)}")
-
+    def forward(self, inputs):
+        hidden, attn, labels_f = inputs
         logits = self.lm_head(hidden)
-        if isinstance(logits, tuple):
-            logits = logits[0]
+        dummy = (attn.float().sum() + labels_f.sum()) * 0.0
+        logits = logits + dummy
+        return logits
+
+def build_pipeline(model):
+    """Turn HF Llama into a 2-stage PipelineModule."""
+    dec = model.model
+    try:
+        rope = dec.layers[0].self_attn.rotary_emb
+    except AttributeError:
+        rope = LlamaRotaryEmbedding(model.config)
         
-        loss = self.loss_fn(
-            logits.view(-1, logits.size(-1)),
-            labels.view(-1)
-        )
-        return loss
+    n_layers = len(dec.layers)
+    split_point  = n_layers // 2
+    layers = []
+    norm_layer = getattr(dec, "norm", None)
 
-# ───────────────────────────────────────────────────────────────────────────────
-#  4. BUILD A PIPELINED MODEL
-# ───────────────────────────────────────────────────────────────────────────────
+    # stage-1: embeddings + n_layers // 2 decoder layers
+    layers.append(LayerSpec(EmbeddingPipe, dec))
+    for l in dec.layers[:split_point]:
+        layers.append(LayerSpec(DecoderLayerPipe, l, rope))
 
-class BloomPipeModel(PipelineModule):
-    """
-    Wraps a Huggingface BloomForCausalLM in a DeepSpeed PipelineModule.
-    Splits the Transformer layers evenly into `num_stages` pieces.
-    The final forward() returns the loss.
-    """
-    def __init__(self, model_name: str, num_stages: int):
-        # 1) Load the HF model in CPU/GPU memory (we’ll let PipelineModule partition it later)
-        hf_model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True,
-            device_map=None
-        )
+    # stage-2: remaining decoder layers + final norm + lm_head + loss
+    for l in dec.layers[split_point:]:
+        layers.append(LayerSpec(DecoderLayerPipe, l, rope))
+    layers.append(LayerSpec(FinalNormPipe, norm_layer))
+    layers.append(LayerSpec(LMHeadPipe, model.lm_head))
 
-        # 2) Extract submodules in the correct order: embeddings → each block → final norm + lm_head
-        #    For BloomForCausalLM, the structure is roughly:
-        #       hf_model.model.embed_tokens
-        #       hf_model.model.layers (ModuleList of Transformer Decoder blocks)
-        #       hf_model.model.norm
-        #       hf_model.lm_head
-        #
-        #    We’ll break them out into a linear Python list of Layers.
-        layers = []
-        # Embedding
-        layers.append(EmbeddingBlock(hf_model.transformer.word_embeddings, hf_model.config.n_head))
-
-        # Transformer Blocks
-        for block in hf_model.transformer.h:
-            layers.append(PassLabels(block))
-
-        layers.append(PassLabels(hf_model.transformer.ln_f))
-
-        # LM head (tie weights with embedding in HF, but we can include it as a standalone module)
-        layers.append(LMHeadLossBlock(hf_model.lm_head))
-
-        # 4) Call super() to let DeepSpeed partition these “layers” across `num_stages` GPUs.
-        super().__init__(
-            layers=layers,
-            num_stages=num_stages,
-            partition_method="parameters"  # “parameters” shards each layer’s weights; alternatives exist
-        )
-
-        # We also store the tokenizer’s config for later use (particularly position embeddings / config)
-        self.config = hf_model.config
-
-# ───────────────────────────────────────────────────────────────────────────────
-#  5. TRAINER CLASS (handles dataset slicing, dataloader, logging, checkpointing)
-# ───────────────────────────────────────────────────────────────────────────────
-
-class Trainer:
-    def __init__(self,
-                 engine,
-                 tokenizer,
-                 dataloader,
-                 start_idx: int,
-                 end_idx: int,
-                 hf_repo: str,
-                 resume_file: str,
-                 accum_steps: int,
-                 initial_epoch: int):
-        """
-        engine       : the deepspeed engine returned by deepspeed.initialize()
-        tokenizer    : the HF tokenizer
-        dataloader   : DataLoader wrapping tokenized dataset
-        start_idx    : slice start index (for checkpoint naming)
-        end_idx      : slice end index
-        hf_repo      : HuggingFace repo to push checkpoints
-        resume_file  : name of the checkpoint file to resume (if any)
-        accum_steps  : gradient accumulation steps
-        initial_epoch: which epoch to start from (if resuming)
-        """
-        self.local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        self.device = torch.device(f"cuda:{self.local_rank}")
-        self.engine = engine
-        self.tokenizer = tokenizer
-        self.dataloader = dataloader
-        self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.hf_repo = hf_repo
-        self.accum_steps = accum_steps
-
-        # Compute how many optimizer steps we will do, so we can early-stop after max.
-        total_samples = end_idx - start_idx
-        world_size = dist.get_world_size()
-        bs_per_gpu = dataloader.batch_size
-        self.max_steps = (total_samples // (bs_per_gpu * world_size * accum_steps)) + 1
-
-        # Epochs / global step tracking
-        self.epoch = initial_epoch
-        self.global_step = 0
-
-        # If there is a resume_file (checkpoint), load it on rank 0, and broadcast to all
-        if resume_file and self.local_rank == 0:
-            try:
-                ckpt_path = hf_hub_download(repo_id=hf_repo, filename=resume_file)
-            except:
-                ckpt_path = resume_file
-            if os.path.exists(ckpt_path):
-                print(f"[Rank {self.local_rank}] Loading checkpoint {resume_file}")
-                engine.load_checkpoint(os.path.dirname(ckpt_path),
-                                       tag=os.path.basename(ckpt_path).replace(".pt", ""))
-        # barrier so everyone waits until model is loaded
-        dist.barrier()
-
-        # For W&B: rank 0 initialises W&B; other ranks skip
-        if self.local_rank == 0:
-            wandb.init(project="bloom-1.7b-pipeline-finetune",
-                       name=f"slice_{start_idx}_{end_idx}",
-                       config={
-                           "model_name": MODEL_NAME,
-                           "num_stages": dist.get_world_size(),
-                           "zero_stage": 1,
-                           "batch_size_per_gpu": bs_per_gpu,
-                           "accum_steps": accum_steps,
-                           "learning_rate": LEARNING_RATE,
-                           "max_epochs": None,  # we’ll log actual epochs
-                           "start_idx": start_idx,
-                           "end_idx": end_idx
-                       })
-            print(f"[Rank {self.local_rank}] WandB run initialized.")
-
-    def save_checkpoint(self):
-        """
-        Save a checkpoint at the end of each epoch. Only rank 0 actually writes to disk
-        and pushes to HF if needed.
-        """
-        if self.local_rank != 0:
-            return
-        tag = f"epoch_{self.epoch}"
-        out_dir = f"ckpt_{self.start_idx}_{self.end_idx}_epoch_{self.epoch}"
-        print(f"[Rank {self.local_rank}] Saving checkpoint → {out_dir} (tag={tag})")
-        self.engine.save_checkpoint(out_dir, tag=tag)
-
-        if self.hf_repo:
-            # upload all files in the checkpoint folder to HF
-            api = HfApi()
-            for filename in os.listdir(out_dir):
-                local_file = os.path.join(out_dir, filename)
-                remote_path = os.path.join(out_dir, filename)
-                api.upload_file(
-                    path_or_fileobj=local_file,
-                    path_in_repo=remote_path,
-                    repo_id=self.hf_repo,
-                    repo_type="model"
-                )
-            print(f"[Rank {self.local_rank}] Checkpoint {tag} uploaded to HF repo {self.hf_repo}")
-
-    def train(self, num_epochs: int):
-        """
-        Main training loop over `num_epochs`. We slice the dataset via DistributedSampler’s set_epoch,
-        do gradient accumulation, log to W&B, and checkpoint.
-        """
-        total_training_start = time.time()
-
-        for ep in range(self.epoch, self.epoch + num_epochs):
-            self.epoch = ep
-            self.dataloader.sampler.set_epoch(ep)
-            data_iter = iter(self.dataloader)
-
-            while self.global_step < self.max_steps:
-                loss = self.engine.train_batch(data_iter=data_iter)
-                if loss is None:               # iterator exhausted
-                    break
-
-                if self.engine.is_gradient_accumulation_boundary():
-                    if self.local_rank == 0:
-                        wandb.log({"train_loss": loss.item(),
-                                   "step": self.global_step})
-                    self.global_step += 1
-                    if self.global_step >= self.max_steps:
-                        break
-
-            # End of epoch: checkpoint + log wall-time
-            epoch_time = time.time() - total_training_start
-            if self.local_rank == 0:
-                wandb.log({"epoch": self.epoch, "time_elapsed_sec": epoch_time})
-                print(f"[Rank {self.local_rank}] Epoch {self.epoch} finished in {epoch_time:.2f}s")
-
-            self.save_checkpoint()
-
-            # Early-stop if max steps exceeded
-            if self.global_step >= self.max_steps:
-                break
-
-        # After all epochs
-        total_time = time.time() - total_training_start
-        if self.local_rank == 0:
-            wandb.log({"run_completed": True, "total_time_sec": total_time})
-            print(f"[Rank {self.local_rank}] Training complete in {total_time:.2f}s")
-
-        dist.barrier()  # ensure all ranks finish together
-
-
-# ───────────────────────────────────────────────────────────────────────────────
-#  6. MAIN
-# ───────────────────────────────────────────────────────────────────────────────
-
-def main():
-    args = parse_args()
-    local_rank, world_size = ds_setup()
-    num_stages = world_size
-
-    # 1) Load & preprocess dataset slice
-    if local_rank == 0:
-        print(f"[Rank {local_rank}] Loading dataset {DATASET_NAME}…")
-    ds = load_dataset(DATASET_NAME, split="train")
-
-    # 2) Filter out empty lines
-    ds = ds.filter(lambda ex: ex["text"] is not None and ex["text"].strip() != "")
-
-    # 3) Slice [start_idx : end_idx]
-    ds = ds.select(range(args.start_idx, args.end_idx))
-
-    if local_rank == 0:
-        print(f"[Rank {local_rank}] Filtered & sliced dataset has {len(ds)} samples.")
-
-    # 4) Tokeniser & tokenisation
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.model_max_length = TARGET_SEQ_LEN
-
-    def batch_to_tuple(samples):
-        batch = default_collate(samples)
-        ids = batch["input_ids"].to(f"cuda:{local_rank}")
-        lbls = batch["labels"].to(f"cuda:{local_rank}")
-        attn = batch["attention_mask"].to(f"cuda:{local_rank}")
-        n_head = pipeline_model.config.n_head
-        alibi = build_alibi_tensor(attn, n_head, dtype=torch.float16).to(f"cuda:{local_rank}")
-        return (ids, lbls, alibi, attn)
-
-    def tokenize_fn(ex):
-        # We do causal LM: input_ids = tokenise(text); labels = same as input_ids
-        toks = tokenizer(
-            ex["text"],
-            truncation=True,
-            max_length=TARGET_SEQ_LEN,
-            padding="max_length"
-        )
-        toks["labels"] = toks["input_ids"].copy()
-        return toks
-
-    tok_ds = ds.map(tokenize_fn, remove_columns=ds.column_names, batched=False)
-    tok_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
-
-    # 5) DataLoader + DistributedSampler
-    sampler = DistributedSampler(tok_ds, shuffle=True)
-    loader = DataLoader(
-        tok_ds,
-        batch_size=args.batch_size,
-        sampler=sampler,
-        pin_memory=False,
-        collate_fn=batch_to_tuple
+    return PipelineModule(
+        layers          = layers,
+        loss_fn         = None,          # handled in LMHeadPipe
+        num_stages      = 2,
+        partition_method= "uniform",     # split 50/50
+        activation_checkpoint_interval = 0
     )
 
-    # 6) Build pipelined model
-    #    We pass num_stages=2 so that DeepSpeed splits our list of layers evenly across 2 GPUs.
-    pipeline_model = BloomPipeModel(model_name=MODEL_NAME, num_stages=num_stages)
+def filter_empty(example):            # drop blank abstracts early
+    return example["text"].strip() != ""
 
-    # 7) DeepSpeed config dict
+# ---------- training loop ---------------------------------------------------
+def main(args):
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    local_rank = int(os.environ.get("LOCAL_RANK", args.local_rank))
+    torch.cuda.set_device(local_rank)
+
+    if not dist.is_initialized():
+        deepspeed.init_distributed(dist_backend="nccl")
+
+    rank = dist.get_rank()
+
+    log_path = f"rank{rank}.log"
+    sys.stdout = open(log_path, "a", buffering=1)
+    print(f"\n=== start {dt.datetime.now()} ===", flush=True)
+
+    # --- WANDB (single process logs) ----------------------------------------
+    if rank == 0:
+        wandb.init(project="llama-1b-ds-pipeline", config=vars(args))
+        wandb.define_metric("epoch", hidden=True)
+        wandb.define_metric("epoch_loss",       step_metric="epoch")
+        wandb.define_metric("epoch_perplexity", step_metric="epoch")
+
+    # --- dataset ------------------------------------------------------------
+    raw_ds  = load_dataset("ash001/arxiv-abstract", split="train")
+    raw_ds  = raw_ds.filter(filter_empty)
+    raw_ds  = raw_ds.select(range(args.start_idx, args.end_idx))
+
+    tok     = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", use_fast=True)
+
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+
+    base_model = AutoModelForCausalLM.from_pretrained(
+        "meta-llama/Llama-3.2-1B-Instruct",
+        torch_dtype=torch.float16
+    )
+
+    base_model.resize_token_embeddings(len(tok))
+
+    pad_id = tok.pad_token_id
+    base_model.config.pad_token_id = pad_id
+    base_model.model.embed_tokens.padding_idx = pad_id
+
+    def tokenize(ex):
+        out = tok(ex["text"],
+                  truncation=True,
+                  max_length=512,
+                  padding="max_length")
+        out["labels"] = [-100 if t == tok.pad_token_id else t for t in out["input_ids"]]
+        return out
+
+    ds = raw_ds.map(tokenize, remove_columns=raw_ds.column_names)
+    ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+
+    loader = torch.utils.data.DataLoader(
+        ds,
+        batch_size  = args.batch_size,   # micro-batch per GPU
+        shuffle     = True,
+        pin_memory  = True,
+    )
+
+    class DeviceLoader:
+        def __init__(self, dataloader, device):
+            self.dataloader = dataloader
+            self.device     = device
+
+        def __iter__(self):
+            for batch in self.dataloader:
+                yield (
+                    batch["input_ids"].to(self.device, non_blocking=True),
+                    batch["attention_mask"].to(self.device, non_blocking=True),
+                    batch["labels"].to(self.device, non_blocking=True),
+                )
+
+    pipe_loader = RepeatingLoader(DeviceLoader(loader, local_rank))
+
+    def shift_ce_loss(logits, labels):
+        return F.cross_entropy(
+            logits[:, :-1].contiguous().view(-1, logits.size(-1)),
+            labels[:, 1:].contiguous().view(-1),
+            ignore_index=-100,
+        )
+
+    pipe_model = build_pipeline(base_model)
+    pipe_model.loss_fn = shift_ce_loss
+
     ds_config = {
+        "fp16": {
+            "enabled": True,
+            "loss_scale": 1024,
+            "hysteresis": 2,
+            "loss_scale_window": 500
+        },
         "train_micro_batch_size_per_gpu": args.batch_size,
         "gradient_accumulation_steps": args.accum_steps,
-        "steps_per_print": 100,
-        "wall_clock_breakdown": True,
-
+        "gradient_clipping": 1.0,
+        "pipeline":      {"seed_layers": False},
+        "pipeline_parallel_size": 2,
         "zero_optimization": {
-            "stage": 1,
-            "allgather_partitions": True,
-            "allgather_bucket_size": 5e6,
-            "reduce_scatter": False,
-            "reduce_bucket_size": 5e6,
-            "overlap_comm": False,
-            "contiguous_gradients": False,
-            "offload_optimizer": {
-                "device": "none"
-            }
+            "stage": 1,                        # ZeRO-1
+            "offload_optimizer": {"device": "none"}
         },
-
         "optimizer": {
             "type": "AdamW",
             "params": {
-                "lr": LEARNING_RATE,
+                "lr": 5e-5,
                 "betas": [0.9, 0.999],
                 "eps": 1e-8,
                 "weight_decay": 0.01
             }
         },
-
-        "scheduler": {
-            "type": "WarmupLR",
-            "params": {
-                "warmup_min_lr": 0,
-                "warmup_max_lr": LEARNING_RATE,
-                "warmup_num_steps": WARMUP_STEPS
-            }
-        },
-
-        "pipeline": {
-            "pipe_partitioned": True,
-            "grad_partitioned": True
-        },
-
-        "fp16": {
-            "enabled": True,
-            "loss_scale": 0
-        }
+        "steps_per_print": 100,
+        "wall_clock_breakdown": True
     }
 
-    engine, _, _, _ = deepspeed.initialize(
-        model=pipeline_model,
-        config_params=ds_config,
-        model_parameters=[p for p in pipeline_model.parameters() if p.requires_grad]
+    engine, optimizer, _, _ = deepspeed.initialize(
+        model               = pipe_model,
+        model_parameters    = [p for p in pipe_model.parameters() if p.requires_grad],
+        config              = ds_config
     )
 
-    if local_rank == 0:
-        print(f"[Rank {local_rank}] DeepSpeed engine initialised with world_size={world_size}.")
+    if engine.is_first_stage() or engine.is_last_stage():
+        engine.set_dataloader(pipe_loader)
 
-    # 9) Load checkpoint if requested
-    trainer = Trainer(
-        engine=engine,
-        tokenizer=tokenizer,
-        dataloader=loader,
-        start_idx=args.start_idx,
-        end_idx=args.end_idx,
-        hf_repo=args.hf_repo,
-        resume_file=args.resume_file,
-        accum_steps=args.accum_steps,
-        initial_epoch=args.initial_epoch
-    )
-
-    # 10) Run training
-    trainer.train(args.num_epochs)
-
-    # 11) Clean up
+    torch.cuda.synchronize()
+    print(f"[rank {rank}] entering pre-train barrier", flush=True)
     dist.barrier()
-    if local_rank == 0:
-        print(f"[Rank {local_rank}] Destroying process group; training finished.")
+    print(f"[rank {rank}] left pre-train barrier", flush=True)
+
+    # --- training -----------------------------------------------------------
+    global_steps   = 0
+    samples_target = args.end_idx - args.start_idx
+    samples_seen   = 0
+    t0             = time.time()
+
+    steps_per_epoch = math.ceil((args.end_idx - args.start_idx) / (args.batch_size * args.accum_steps))
+
+    for epoch in range(args.initial_epoch, args.initial_epoch + args.num_epochs):
+
+        epoch_loss = 0.0
+        for _ in range(steps_per_epoch):
+            loss = engine.train_batch()
+
+            if engine.is_first_stage():
+                samples_seen += args.batch_size * args.accum_steps
+                epoch_loss   += loss.item()
+
+            if engine.is_first_stage() and rank == 0:
+                global_steps += 1
+                wandb.log({"train_loss": loss.item(),
+                           "samples_seen": samples_seen,
+                           "step": global_steps})
+
+        if engine.is_first_stage() and rank == 0:
+            avg_loss = epoch_loss / steps_per_epoch
+            wandb.log({"epoch": epoch,
+                       "epoch_loss": avg_loss,
+                       "epoch_perplexity": math.exp(avg_loss)})
+            print(f"[Epoch {epoch}] mean loss: {avg_loss:.4f}  (ppl ≈ {math.exp(avg_loss):.1f})", flush=True)
+
+    torch.cuda.synchronize()
+    print(f"[rank {rank}] waiting end-of-training barrier", flush=True)
+    dist.barrier()
+    print(f"[rank {rank}] all ranks finished training", flush=True)
+
+    # --- finish -------------------------------------------------------------
+    elapsed = time.time() - t0
+    if rank == 0:
+        wandb.log({"total_training_time_sec": elapsed})
+        print(f"Finished slice {args.start_idx}-{args.end_idx} in {elapsed/60:.2f} min")
+    if args.hf_repo:
+        torch.cuda.synchronize()
+        t0 = time.time()
+        print(f"[rank {rank}] starting save…", flush=True);
+        engine.save_checkpoint(".", tag="pipeline_last")
+        torch.cuda.synchronize()
+        print(f"[rank {rank}] save done in {time.time()-t0:.1f}s", flush=True)
+
+        try:
+            from pathlib import Path
+            sz = sum(p.stat().st_size for p in Path("pipeline_last").glob("**/*"))/1e9
+            print(f"[rank {rank}] checkpoint size on disk: {sz:.2f} GB", flush=True)
+        except Exception as e:
+            print(f"[rank {rank}] size check failed: {e}", flush=True)
+
+        print(f"[rank {rank}] entering post-save barrier", flush=True)
+        dist.barrier()
+        print(f"[rank {rank}] exited post-save barrier", flush=True)
+
+        if rank == 0 and os.getenv("HF_TOKEN"):
+            print("[rank 0] uploading to HF…", flush=True)
+            # push tokenizer + final engine weights if desired
+            tok.push_to_hub(args.hf_repo, token=os.getenv("HF_TOKEN"))
+            from huggingface_hub import HfApi
+            HfApi().upload_folder(folder_path="pipeline_last",
+                                  repo_id=args.hf_repo,
+                                  repo_type="model",
+                                  token=os.getenv("HF_TOKEN"),)
+            print("[rank 0] upload complete", flush=True)
+        elif rank == 0:
+            print("[rank 0] Skipping push_to_hub: no write token found.", flush=True)
+
     dist.destroy_process_group()
 
-
+# ---------- CLI -------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    p = argparse.ArgumentParser(description="Dual-GPU DeepSpeed pipeline fine-tune Llama-1B")
+    p.add_argument("--local_rank",    type=int, default=-1)
+    p.add_argument("--num_epochs",    type=int, required=True)
+    p.add_argument("--start_idx",     type=int, required=True)
+    p.add_argument("--end_idx",       type=int, required=True)
+    p.add_argument("--batch_size",    type=int, default=1)
+    p.add_argument("--accum_steps",   type=int, default=1)
+    p.add_argument("--initial_epoch", type=int, default=0)
+    p.add_argument("--hf_repo",       type=str, required=True)
+    p.add_argument("--resume_file",   type=str)
+    args = p.parse_args()
+    main(args)
