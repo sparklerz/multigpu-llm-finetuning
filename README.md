@@ -1,1 +1,1 @@
-# Mutli GPU LLM finetuning
+# Multi GPU LLM finetuning
