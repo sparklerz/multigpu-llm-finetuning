@@ -15,5 +15,5 @@ This repository showcases practical projects leveraging multi-GPU training to fi
 | [Ray Tune Hyperparameter Optimization](./ray-tune/) | Ray Tune, PyTorch | [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) | 2×T4 16GB | W&B | [Notebook](ray-tune-qwen/ray-tune-qwen-0.5B-notebook-6-trials.ipynb)<br>[HF Model](https://huggingface.co/ash001/ray-tune-qwen-0.5B) |
 
 Most experiments run on Kaggle with 2×T4 16GB GPUs<br>
-[^ds_offload]DeepSpeed ZeRO-2 offload requires 37GB CPU RAM for parameter offloading; run on Vast.ai due to Kaggle's memory constraints
+[^ds_offload]: DeepSpeed ZeRO-2 offload requires 37GB CPU RAM for parameter offloading; run on Vast.ai due to Kaggle's memory constraints
 
