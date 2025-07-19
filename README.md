@@ -6,8 +6,8 @@ This repository showcases practical projects leveraging multi-GPU training to fi
 
 | Project | Framework / Tool | Model | Hardware | Experiment Tracking | Resources |
 |---------|------------------|-------|----------|---------------------|-----------|
-| [PyTorch DDP Multi-GPU Training](./pytorch-ddp/) | PyTorch DDP | [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) |      | MLflow | [Notebooks](pytorch-ddp-qwen-0.5b/) |
-| [PyTorch FSDP Distributed Training](./pytorch-fsdp/) | PyTorch FSDP | [OPT-1.3B](https://huggingface.co/facebook/opt-1.3b) |      | W&B | [Notebook](pytorch-fsdp-opt-1.3b/pytorch-fsdp-opt-1-3b.ipynb) |
+| [PyTorch DDP Multi-GPU Training](./pytorch-ddp/) | PyTorch DDP | [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) | 2×T4 16GB | MLflow | [Notebooks](pytorch-ddp-qwen-0.5b/) |
+| [PyTorch FSDP Distributed Training](./pytorch-fsdp/) | PyTorch FSDP | [OPT-1.3B](https://huggingface.co/facebook/opt-1.3b) | 2×T4 16GB | W&B | [Notebook](pytorch-fsdp-opt-1.3b/pytorch-fsdp-opt-1-3b.ipynb) |
 | [DeepSpeed ZeRO-2 Offload Training](./deepspeed-offload/) | DeepSpeed Zero-2 Offload | [Llama-3.2-1B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct) |      | W&B | [Notebook](deepspeed-zero2-offload-llama-1b/) |
 | [DeepSpeed Pipeline Parallelism](./deepspeed-pipeline/) | DeepSpeed Pipeline + Zero-1 | [Llama-3.2-1B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct) |      | W&B | [Notebook](deepspeed-pipeline-llama-1b/deepspeed-pipeline-notebook.ipynb) |
 | [LLM Foundry FSDP Fine-tuning](./llm-foundry-finetune/) | MosaicML's LLM Foundry, FSDP | [OPT-1.3B](https://huggingface.co/facebook/opt-1.3b) |      | W&B | [Notebook](llm-foundry-opt-1.3b-fsdp/llm-foundry-notebook.ipynb) |
