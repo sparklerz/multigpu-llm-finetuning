@@ -21,16 +21,25 @@
 * **Model Quality:** Achieved similar evaluation loss on test data as the original pre-trained model (no overfitting observed)
 * **Inference:** Model inference capabilities remain unchanged from base model
 
-**Hardware & Compute**
+## Hardware & Compute
 - **Platform:** Kaggle Notebooks
 - **GPUs:** 2× NVIDIA T4 16GB 
 - **Communication Backend:** NCCL for inter-GPU communication
 - **Framework:** PyTorch DDP for distributed training
 
+## MLOps Practices
+### Experiment Tracking
+- **MLflow Integration:** Comprehensive experiment tracking with separate runs for 1-GPU vs 2-GPU comparisons
+- **Metrics Logged:** Training loss, total runtime, hyperparameters, and sample processing rates
+- **Local Storage:** MLflow artifacts stored locally for analysis
 
+### Model Versioning
+- **Checkpoint Naming:** Semantic versioning with data range and epoch: `qwen2_0.5B_{start_idx}-{end_idx}-epoch-{epoch_num}.pt`
+- **Hugging Face Hub:** Final model weights uploaded to [ash001/pytorch-DDP-Qwen2-0.5B](https://huggingface.co/ash001/pytorch-DDP-Qwen2-0.5B/tree/main)
+- **Progressive Checkpointing:** Saves checkpoints after each epoch with resume capability
 
-
-
+## How to Run
+<!pip install>
 
 
 
