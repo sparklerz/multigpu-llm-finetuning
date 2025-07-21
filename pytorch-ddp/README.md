@@ -39,7 +39,10 @@
 - **Progressive Checkpointing:** Saves checkpoints after each epoch with resume capability
 
 ## How to Run
-<!pip install>
+```
+pip install
+```
+
 
 
 
