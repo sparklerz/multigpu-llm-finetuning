@@ -60,16 +60,13 @@ pip install mlflow
 ```
 mlflow ui --host 0.0.0.0 --port 8082
 ```
-**Note:** Ensure port 8082 is open on your Vast.ai instance for external access.
-
-**Post-Training Access:** Use "Upload/Download Data from Cloud Providers" (cloud sync) feature to download experiment zip file
-
-**Benefits:** Real-time experiment monitoring, live dashboard access
+- **Note:** Ensure port 8082 is open on your Vast.ai instance for external access.
+- **Post-Training Access:** Use "Upload/Download Data from Cloud Providers" (cloud sync) feature to download experiment zip file
+- **Benefits:** Real-time experiment monitoring, live dashboard access
 
 #### Option 2: Kaggle Notebooks (Primary Platform)
-**Default Setup:** MLflow runs automatically in Kaggle notebooks - no additional configuration needed.
-
-**Post-Training Access:** Download zip file directly from notebook outputs for local analysis.
+- **Default Setup:** MLflow runs automatically in Kaggle notebooks - no additional configuration needed.
+- **Post-Training Access:** Download zip file directly from notebook outputs for local analysis.
 
 #### Option 3: Local Analysis (Post-training)
 
@@ -192,8 +189,8 @@ Use the provided evaluation notebook to assess model performance: [Model Evaluat
 
 ### Notebooks:
 
-- [Model Evaluation Notebook](https://www.kaggle.com/code/saratkannan/ddp-qwen-evaluation-notebook) - Comprehensive evaluation comparing loss and text generation quality across all fine-tuned checkpoints
 - [Training Workflow Example](https://www.kaggle.com/code/saratkannan/pytorch-ddp-qwen-2gpus) - Complete DDP training setup and execution (0-5000 samples)
+- [Model Evaluation Notebook](https://www.kaggle.com/code/saratkannan/ddp-qwen-evaluation-notebook) - Comprehensive evaluation comparing loss and text generation quality across all fine-tuned checkpoints
 
 **Note:** All training phases follow the same workflow with different parameters as documented in the "How to Run" section.
 
