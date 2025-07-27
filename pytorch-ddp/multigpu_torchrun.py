@@ -143,18 +143,19 @@ def main(num_epochs: int,
     run_start_time = time.time()
     local_rank, world_size = ddp_setup()
 
-    mlflow.set_experiment("qwen2-0.5B-arxiv-finetune")
-    print(f"[Rank {local_rank}] MLflow experiment 'qwen2-0.5B-arxiv-finetune' is created")
-    mlflow.start_run(run_name=f"{world_size}gpu_{start_idx}-{end_idx}")
-    mlflow.log_params({
-        "num_epochs": num_epochs,
-        "start_idx": start_idx,
-        "end_idx": end_idx,
-        "batch_size": batch_size,
-        "accumulation_steps": accum_steps,
-        "initial_epoch": initial_epoch,
-        "hf_repo": hf_repo
-    })
+    if local_rank == 0:
+        mlflow.set_experiment("qwen2-0.5B-arxiv-finetune")
+        print(f"[Rank {local_rank}] MLflow experiment 'qwen2-0.5B-arxiv-finetune' is created")
+        mlflow.start_run(run_name=f"{world_size}gpu_{start_idx}-{end_idx}")
+        mlflow.log_params({
+            "num_epochs": num_epochs,
+            "start_idx": start_idx,
+            "end_idx": end_idx,
+            "batch_size": batch_size,
+            "accumulation_steps": accum_steps,
+            "initial_epoch": initial_epoch,
+            "hf_repo": hf_repo
+        })
 
     # load and slice dataset with progress bar
     ds = load_dataset("ash001/arxiv-abstract", split="train")
@@ -193,9 +194,9 @@ def main(num_epochs: int,
     if local_rank == 0:
         mlflow.log_metric("total_run_time_sec", run_time)
         print(f"[Rank {local_rank}] Total MLflow run time: {run_time:.2f}s")
-    # end MLflow run
-    print(f"[Rank {local_rank}] MLflow run completed for slice {start_idx}-{end_idx}")
-    mlflow.end_run()
+        # end MLflow run
+        print(f"[Rank {local_rank}] MLflow run completed for slice {start_idx}-{end_idx}")
+        mlflow.end_run()
 
     dist.destroy_process_group()
 
