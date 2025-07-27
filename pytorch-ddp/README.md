@@ -68,6 +68,7 @@ mlflow ui --host 0.0.0.0 --port 8082
 
 #### Option 2: Kaggle Notebooks (Primary Platform)
 **Default Setup:** MLflow runs automatically in Kaggle notebooks - no additional configuration needed.
+
 **Post-Training Access:** Download zip file directly from notebook outputs for local analysis.
 
 #### Option 3: Local Analysis (Post-training)
