@@ -139,23 +139,7 @@ def main(num_epochs: int,
          resume_file: str = None,
          accum_steps: int = 1,
          initial_epoch: int = 0):
-    # record overall run start time
-    run_start_time = time.time()
     local_rank, world_size = ddp_setup()
-
-    if local_rank == 0:
-        mlflow.set_experiment("qwen2-0.5B-arxiv-finetune")
-        print(f"[Rank {local_rank}] MLflow experiment 'qwen2-0.5B-arxiv-finetune' is created")
-        mlflow.start_run(run_name=f"{world_size}gpu_{start_idx}-{end_idx}")
-        mlflow.log_params({
-            "num_epochs": num_epochs,
-            "start_idx": start_idx,
-            "end_idx": end_idx,
-            "batch_size": batch_size,
-            "accumulation_steps": accum_steps,
-            "initial_epoch": initial_epoch,
-            "hf_repo": hf_repo
-        })
 
     # load and slice dataset with progress bar
     ds = load_dataset("ash001/arxiv-abstract", split="train")
@@ -185,18 +169,31 @@ def main(num_epochs: int,
                       start_idx, end_idx,
                       hf_repo, resume_file,
                       accum_steps, initial_epoch)
-    trainer.train(num_epochs)
-
-    if local_rank == 0 and hf_repo:
-        tokenizer.push_to_hub(hf_repo)
-    # compute and log total run time
-    run_time = time.time() - run_start_time
     if local_rank == 0:
-        mlflow.log_metric("total_run_time_sec", run_time)
-        print(f"[Rank {local_rank}] Total MLflow run time: {run_time:.2f}s")
+        mlflow.set_experiment("qwen2-0.5B-arxiv-finetune")
+        print(f"[Rank {local_rank}] MLflow experiment 'qwen2-0.5B-arxiv-finetune' is created")
+        mlflow.start_run(run_name=f"{world_size}gpu_{start_idx}-{end_idx}")
+        mlflow.log_params({
+            "num_epochs": num_epochs,
+            "start_idx": start_idx,
+            "end_idx": end_idx,
+            "batch_size": batch_size,
+            "accumulation_steps": accum_steps,
+            "initial_epoch": initial_epoch,
+            "hf_repo": hf_repo
+        })
+    training_start_time = time.time()
+    trainer.train(num_epochs)
+    training_time = time.time() - training_start_time
+    if local_rank == 0:
+        mlflow.log_metric("train_phase_time_sec", training_time)
+        print(f"[Rank {local_rank}] Total MLflow run time: {training_time:.2f}s")
         # end MLflow run
         print(f"[Rank {local_rank}] MLflow run completed for slice {start_idx}-{end_idx}")
         mlflow.end_run()
+
+    if local_rank == 0 and hf_repo:
+        tokenizer.push_to_hub(hf_repo)
 
     dist.destroy_process_group()
 
