@@ -143,8 +143,8 @@ login(token="your_hf_token_here") # Replace with your actual write token
 | Parameter | Description | Example Values |
 |-----------|-------------|----------------|
 | `--num_epochs` | Number of epochs | `1` |
-| `--start_idx` | Data slice range start index | `0` |
-| `--end_idx` | Data slice range end index | `5000` |
+| `--start_idx` | Data slice start index | `0` |
+| `--end_idx` | Data slice end index | `5000` |
 | `--batch_size` | Micro-batch size per GPU | `1` |
 | `--accum_steps` | Gradient accumulation steps | `8` |
 | `--hf_repo` | Hugging Face repository for uploads | Your repo name |
