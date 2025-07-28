@@ -1,7 +1,7 @@
 # PyTorch DDP Multi-GPU Training
 
 ## Objective
-**Objective:** Compare single-GPU vs multi-GPU training performance using PyTorch's DistributedDataParallel (DDP) to fine-tune [Qwen/Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) on arxiv abstracts dataset.
+**Objective:** Compare single-GPU vs multi-GPU training performance using PyTorch's DistributedDataParallel (DDP) to fine-tune [Qwen/Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) on [arxiv abstracts dataset](https://huggingface.co/datasets/ash001/arxiv-abstract).
 
 ## Technique & Tools
 * **Technique:** PyTorch DistributedDataParallel (DDP) with torchrun launcher for multi-GPU coordination. Implemented gradient accumulation and distributed sampling for efficient training across GPUs.
