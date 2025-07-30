@@ -141,7 +141,7 @@ Use the provided evaluation notebook for model assessment:
 **Important:** The uploaded model files are in DeepSpeed pipeline checkpoint format and cannot be directly loaded with standard HuggingFace methods.
 
 ### For Inference Use:
-- Use the conversion script provided in the evaluation notebook to merge checkpoint shards
+- Use the conversion script provided in the [evaluation notebook](https://www.kaggle.com/code/saratkannan/deepspeed-pipeline-evaluation-notebook) to merge checkpoint shards
 - The conversion process combines all layer shards and pipeline stages into a unified PyTorch state dict
 - Load the converted checkpoint into a standard LLaMA model for inference
 
