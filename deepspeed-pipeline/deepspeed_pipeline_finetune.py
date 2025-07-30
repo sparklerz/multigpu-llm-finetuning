@@ -359,6 +359,5 @@ if __name__ == "__main__":
     p.add_argument("--accum_steps",   type=int, default=1)
     p.add_argument("--initial_epoch", type=int, default=0)
     p.add_argument("--hf_repo",       type=str, required=True)
-    p.add_argument("--resume_file",   type=str)
     args = p.parse_args()
     main(args)
