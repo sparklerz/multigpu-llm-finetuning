@@ -191,11 +191,11 @@ The `configs/finetune_opt.yaml` file contains all training parameters:
 ### Model Artifacts
 * **Base Model:** [facebook/opt-1.3b](https://huggingface.co/facebook/opt-1.3b) - Original OPT-1.3B model
 * **Fine-tuned Weights (Branches):**
- * [Epoch 1](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B/tree/epoch-1)
- * [Epoch 2](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B/tree/epoch-2)
+  * [Epoch 1](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B/tree/epoch-1)
+  * [Epoch 2](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B/tree/epoch-2)
 * **Fine-tuned Weights (Separate Repos):**
- * [llm-foundry-fsdp-opt-1.3B-epoch-1](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B-epoch-1/tree/main)
- * [llm-foundry-fsdp-opt-1.3B-epoch-2](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B-epoch-2/tree/main)
+  * [llm-foundry-fsdp-opt-1.3B-epoch-1](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B-epoch-1/tree/main)
+  * [llm-foundry-fsdp-opt-1.3B-epoch-2](https://huggingface.co/ash001/llm-foundry-fsdp-opt-1.3B-epoch-2/tree/main)
 
 ### Experiment Tracking
 - **W&B Project:** [llm-foundry-demo](https://wandb.ai/kannansarat9/llm-foundry-demo/workspace) - Complete training metrics and LLM Foundry evaluation results
