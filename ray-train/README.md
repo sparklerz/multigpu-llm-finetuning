@@ -140,9 +140,9 @@ Edit the config dictionary in `ray_train_llm.py` to customize:
 
 ### Notebooks
 Training progression notebooks demonstrating the complete workflow:
-- [ray-train-bloom-1b-notebook-start.ipynb]() - Initial setup and configuration
-- [ray-train-bloom-1b-notebook-mid-1.ipynb]() through [ray-train-bloom-1b-notebook-mid-6.ipynb]() - Training progress checkpoints
-- [ray-train-bloom-1b-notebook-end.ipynb]() - Final results and evaluation
+- [ray-train-bloom-1b-notebook-start.ipynb](https://www.kaggle.com/code/saratkannan/ray-train-bloom-1b-notebook-start) - Initial setup and configuration logs
+- [ray-train-bloom-1b-notebook-mid-1.ipynb](https://www.kaggle.com/code/saratkannan/ray-train-bloom-1b-notebook-mid-1) through [ray-train-bloom-1b-notebook-mid-6.ipynb](https://www.kaggle.com/code/saratkannan/ray-train-bloom-1b-notebook-mid-6) - Training progression logs
+- [ray-train-bloom-1b-notebook-end.ipynb](https://www.kaggle.com/code/saratkannan/ray-train-bloom-1b-notebook-end) - Final results and evaluation logs
 
 ### Model Artifacts
 - **Base Model:** [bigscience/bloomz-1b1](https://huggingface.co/bigscience/bloomz-1b1) - Original BLOOMZ-1B1 model
