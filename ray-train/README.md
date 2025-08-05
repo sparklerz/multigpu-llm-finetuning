@@ -1,7 +1,7 @@
 # Ray Train with DeepSpeed ZeRO-3
 
 ## Objective
-**Objective:** Fine-tune a [1.1B-parameter BLOOMZ model](https://huggingface.co/bigscience/bloomz-1b1) using Ray Train with DeepSpeed ZeRO-3 for distributed training across multiple GPUs, demonstrating scalable LLM fine-tuning with minimal configuration overhead.
+**Objective:** Fine-tune a [1.1B-parameter BLOOMZ model](https://huggingface.co/bigscience/bloomz-1b1), a multilingual instruction-following language model, using Ray Train with DeepSpeed ZeRO-3 for distributed training across multiple GPUs, demonstrating scalable LLM fine-tuning with minimal configuration overhead.
 
 ## Technique & Tools
 - **Technique:** Ray Train with DeepSpeed ZeRO-3 for distributed training with full parameter sharding across GPUs. Used config-based minimal Ray code to orchestrate distributed training with automatic parameter partitioning and gradient synchronization.
@@ -24,9 +24,17 @@
 
 ## Results & Evaluation
 ### Training Performance:
-* **Model Quality:** Ray Train's built-in evaluator logged lesser loss than the initial training loss, demonstrating successful fine-tuning
+* **Training Loss Reduction:** Training loss decreased from ~3.6 to ~3.2 over 1,400 steps, demonstrating a **0.4 point improvement** (11% reduction)
+* **Evaluation Performance:** Final evaluation loss of ~3.2, confirming model convergence without overfitting
 * **Memory Efficiency:** Successfully trained 1.1B parameter model across 2 × 16GB GPUs using ZeRO-3 parameter sharding
-* **Evaluation Metrics:** Evaluation loss reduction observable in W&B eval section, confirming model improvement over training
+* **Training Stability:** Consistent gradient norms (~8) and smooth learning rate decay curve indicate stable distributed training
+
+**Training Metrics Visualization:**
+![W&B Training Metrics](https://github.com/user-attachments/assets/6c34ca8f-87ab-426d-8e98-b2e52a63c96b)
+*Training and evaluation loss curves showing successful convergence and model improvement*
+
+![W&B Evaluation Metrics](https://github.com/user-attachments/assets/6b85ea1f-e20b-4708-9c9f-d22f5c1dba52)
+*Evaluation metrics demonstrating consistent performance across training steps*
 
 ### Training Metrics:
 * **Effective batch size:** 16 (1 per-device × 8 accumulation × 2 workers)
@@ -38,7 +46,29 @@
 * **Experiment Tracking:** Logged training and evaluation metrics to Weights & Biases with project [ray-bloom-1b-zero3](https://wandb.ai/kannansarat9/ray-bloom-1b-zero3/workspace) and run ID: [worker-0](https://wandb.ai/kannansarat9/ray-bloom-1b-zero3/runs/vk6bl79s). Tracked comprehensive training progress, loss curves, and system metrics with real-time monitoring capabilities.
 
 ### Model Versioning
-* **Model Versioning:** No traditional model versioning implemented - fine-tuned weights trained across the complete dataset are directly uploaded to Hugging Face Hub ([ash001/ray-train-zero-3-bloom-1B](https://huggingface.co/ash001/ray-train-zero-3-bloom-1B/tree/main)) for immediate deployment and sharing.
+**Model Versioning:** Comprehensive model and training state preservation through automatic HuggingFace Hub uploads. The repository [ash001/ray-train-zero-3-bloom-1B](https://huggingface.co/ash001/ray-train-zero-3-bloom-1B/tree/main) contains both the final model and complete training checkpoints.
+
+#### Repository Structure:
+**Root Level (Final Model):**
+- `model.safetensors` - Fine-tuned model weights in SafeTensors format
+- `config.json` - Model configuration and architecture parameters  
+- `tokenizer.json` & `tokenizer_config.json` - Tokenizer configuration for inference
+- `special_tokens_map.json` - Special token mappings
+- `training_args.bin` - Training hyperparameters and configuration
+
+**Checkpoint Directory (`last-checkpoint/`):**
+- **Model State:** Complete model and tokenizer files for resuming training
+- **Training State:** `trainer_state.json` with epoch, step, and loss tracking
+- **Reproducibility:** `rng_state_0.pth` & `rng_state_1.pth` for deterministic resuming
+- **DeepSpeed Integration:** `zero_to_fp32.py` utility for checkpoint conversion
+
+**DeepSpeed ZeRO-3 States (`global_step1406/`):**
+- `zero_pp_rank_0_mp_rank_00_model_states.pt` - Rank 0 model parameter shards
+- `zero_pp_rank_0_mp_rank_00_optim_states.pt` - Rank 0 optimizer states  
+- `zero_pp_rank_1_mp_rank_00_model_states.pt` - Rank 1 model parameter shards
+- `zero_pp_rank_1_mp_rank_00_optim_states.pt` - Rank 1 optimizer states
+
+This structure enables both **direct inference** using root-level files and **training resumption** using the complete checkpoint directory.
 
 ## How to Run
 ### Prerequisites
@@ -54,7 +84,7 @@
 ```
 #### 2. Clone Repository and Navigate
 ```
-!git clone https://github.com/sparklerz/multigpu-llm-finetuning.gi
+!git clone https://github.com/sparklerz/multigpu-llm-finetuning.git
 %cd multigpu-llm-finetuning
 %cd ray-train
 ```
