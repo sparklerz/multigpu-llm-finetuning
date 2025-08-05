@@ -31,10 +31,10 @@
 
 **Training Metrics Visualization:**
 ![W&B Training Metrics](https://github.com/user-attachments/assets/6c34ca8f-87ab-426d-8e98-b2e52a63c96b)
-*Training and evaluation loss curves showing successful convergence and model improvement*
+*Training loss curves showing successful convergence with decreasing loss, learning rate decay, and stable gradient norms throughout training*
 
 ![W&B Evaluation Metrics](https://github.com/user-attachments/assets/6b85ea1f-e20b-4708-9c9f-d22f5c1dba52)
-*Evaluation metrics demonstrating consistent performance across training steps*
+*Final evaluation metrics taken at the end of training (step 1406), showing evaluation loss, runtime, and throughput performance*
 
 ### Training Metrics:
 * **Effective batch size:** 16 (1 per-device × 8 accumulation × 2 workers)
