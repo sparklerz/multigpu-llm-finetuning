@@ -189,7 +189,7 @@ Use the provided evaluation notebook to assess model performance: [Model Evaluat
 
 ### Notebooks:
 
-- [Training Workflow Example](https://www.kaggle.com/code/saratkannan/pytorch-ddp-qwen-2gpus) - Complete DDP training setup and execution (0-5000 samples)
+- [Training Notebook](https://www.kaggle.com/code/saratkannan/pytorch-ddp-qwen-2gpus) - Complete DDP training setup and execution (0-5000 samples)
 - [Model Evaluation Notebook](https://www.kaggle.com/code/saratkannan/ddp-qwen-evaluation-notebook) - Comprehensive evaluation comparing loss and text generation quality across all fine-tuned checkpoints
 
 **Note:** All training phases follow the same workflow with different parameters as documented in the "How to Run" section.
