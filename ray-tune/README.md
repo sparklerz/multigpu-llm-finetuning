@@ -11,7 +11,7 @@
     - PyTorch Transformers for model training and tokenization
     - Weights & Biases for experiment tracking (project: [ray-tune-qwen](https://wandb.ai/kannansarat9/ray-tune-qwen/workspace))
     - Hugging Face Hub for model versioning and deployment
-    - IMDb dataset (20% subset) for fine-tuning with text truncation to 256 tokens
+    - [IMDb dataset](https://huggingface.co/datasets/stanfordnlp/imdb) (20% subset) for fine-tuning with text truncation to 256 tokens
 
 ## Implementation Details
 ### Hyperparameter Search Space:
