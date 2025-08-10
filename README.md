@@ -1,6 +1,6 @@
-# Multi‑GPU LLM Fine‑Tuning Projects
+# Distributed Multi‑GPU LLM Fine‑Tuning Projects
 
-This repository showcases hands-on projects leveraging multi-GPU training to fine-tune large language models (LLMs), demonstrating expertise in PyTorch Distributed, DeepSpeed, Ray (Tune, Train), and MosaicML's LLM Foundry. Each project includes detailed experiment tracking, evaluation, and final model weights.
+This repository showcases hands-on projects leveraging distributed multi-GPU training to fine-tune large language models (LLMs), demonstrating expertise in PyTorch Distributed, DeepSpeed, Ray (Tune, Train), and MosaicML's LLM Foundry. Each project includes detailed experiment tracking, evaluation, and final model weights.
 
 ## Projects Overview
 
